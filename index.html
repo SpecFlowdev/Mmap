@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mmap — Crypto Wallet Tracker</title>
+<link rel="stylesheet" href="assets/css/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🕸️</text></svg>">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-dot"></span>
+    <span class="brand-name">Mmap</span>
+    <span class="brand-sub" data-i18n="brand.sub">карта переводов кошелька</span>
+  </div>
+  <div class="topbar-actions">
+    <div class="seg" id="lang-switch" role="group" aria-label="Language">
+      <button class="seg-btn" data-lang="ru">RU</button>
+      <button class="seg-btn" data-lang="en">EN</button>
+    </div>
+    <div class="seg" id="theme-switch" role="group" aria-label="Theme">
+      <button class="seg-btn" data-theme-set="dark" title="Dark">🌙</button>
+      <button class="seg-btn" data-theme-set="light" title="Light">☀️</button>
+    </div>
+    <button class="btn ghost" id="settings-open" data-i18n="nav.settings">Настройки</button>
+  </div>
+</header>
+
+<section class="search">
+  <div class="search-row">
+    <input id="address-input" class="input" spellcheck="false" autocomplete="off"
+           data-i18n-attr="placeholder:search.placeholder"
+           placeholder="Вставьте адрес кошелька (BTC, ETH, TRON, SOL, LTC, DOGE…)">
+    <select id="chain-select" class="input select"></select>
+    <button class="btn primary" id="scan-btn" data-i18n="search.scan">Отследить</button>
+  </div>
+  <div class="search-meta">
+    <span class="hint" id="detected-hint"></span>
+    <span class="spacer"></span>
+    <label class="check"><input type="checkbox" id="opt-tokens" checked>
+      <span data-i18n="search.tokens">Токены</span></label>
+    <label class="check"><input type="checkbox" id="opt-usd" checked>
+      <span data-i18n="search.usd">Оценка в USD</span></label>
+    <select id="limit-select" class="input select small">
+      <option value="50">50</option>
+      <option value="100" selected>100</option>
+      <option value="250">250</option>
+      <option value="500">500</option>
+    </select>
+  </div>
+  <div class="saved" id="saved-bar" hidden>
+    <span class="saved-title" data-i18n="saved.title">Отслеживаемые кошельки</span>
+    <div class="saved-list" id="saved-list"></div>
+    <button class="btn ghost small" id="saved-export" data-i18n="saved.export">Экспорт</button>
+    <button class="btn ghost small" id="saved-import" data-i18n="saved.import">Импорт</button>
+    <input type="file" id="saved-file" accept="application/json" hidden>
+  </div>
+  <div id="status" class="status" hidden></div>
+</section>
+
+<section class="stats" id="stats" hidden>
+  <div class="stat"><div class="stat-label" data-i18n="stat.txs">Переводов</div><div class="stat-value" id="st-txs">—</div></div>
+  <div class="stat"><div class="stat-label" data-i18n="stat.in">Получено</div><div class="stat-value pos" id="st-in">—</div></div>
+  <div class="stat"><div class="stat-label" data-i18n="stat.out">Отправлено</div><div class="stat-value neg" id="st-out">—</div></div>
+  <div class="stat"><div class="stat-label" data-i18n="stat.net">Итого</div><div class="stat-value" id="st-net">—</div></div>
+  <div class="stat"><div class="stat-label" data-i18n="stat.peers">Контрагентов</div><div class="stat-value" id="st-peers">—</div></div>
+  <div class="stat"><div class="stat-label" data-i18n="stat.assets">Активов</div><div class="stat-value" id="st-assets">—</div></div>
+</section>
+
+<main class="layout" id="layout" hidden>
+  <div class="panel graph-panel">
+    <div class="panel-head">
+      <h2 data-i18n="graph.title">Схема переводов</h2>
+      <div class="panel-tools">
+        <select id="graph-asset" class="input select small"></select>
+        <button class="btn ghost small" id="graph-fit" data-i18n="graph.fit">По размеру</button>
+        <button class="btn ghost small" id="graph-export" data-i18n="graph.export">PNG</button>
+      </div>
+    </div>
+    <div class="graph-wrap">
+      <canvas id="graph"></canvas>
+      <div class="legend">
+        <span><i class="dot self"></i><span data-i18n="legend.self">Ваш кошелёк</span></span>
+        <span><i class="dot in"></i><span data-i18n="legend.in">Отправитель</span></span>
+        <span><i class="dot out"></i><span data-i18n="legend.out">Получатель</span></span>
+      </div>
+      <div class="tip" id="graph-tip" hidden></div>
+    </div>
+  </div>
+
+  <div class="panel list-panel">
+    <div class="panel-head">
+      <h2 data-i18n="list.title">Переводы</h2>
+      <div class="panel-tools">
+        <input id="filter-input" class="input small" data-i18n-attr="placeholder:list.filter" placeholder="Фильтр…">
+        <select id="dir-filter" class="input select small">
+          <option value="all" data-i18n="list.all">Все</option>
+          <option value="in" data-i18n="list.onlyin">Входящие</option>
+          <option value="out" data-i18n="list.onlyout">Исходящие</option>
+        </select>
+        <button class="btn ghost small" id="csv-export" data-i18n="list.csv">CSV</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="tx-table">
+        <thead>
+          <tr>
+            <th data-sort="ts" data-i18n="th.date">Дата</th>
+            <th data-i18n="th.dir">Тип</th>
+            <th data-i18n="th.peer">Контрагент</th>
+            <th data-sort="amount" data-i18n="th.amount">Сумма</th>
+            <th data-sort="usd" data-i18n="th.usd">USD</th>
+            <th data-i18n="th.tx">Транзакция</th>
+          </tr>
+        </thead>
+        <tbody id="tx-body"></tbody>
+      </table>
+    </div>
+    <div class="table-foot"><span id="table-count"></span></div>
+  </div>
+
+  <div class="panel peers-panel">
+    <div class="panel-head"><h2 data-i18n="peers.title">Топ контрагентов</h2></div>
+    <div id="peers-list" class="peers"></div>
+  </div>
+</main>
+
+<div class="modal" id="settings-modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2 data-i18n="settings.title">Настройки API</h2>
+      <button class="btn ghost small" id="settings-close">✕</button>
+    </div>
+    <p class="muted" data-i18n="settings.note">Ключи хранятся только в вашем браузере (localStorage) и отправляются напрямую в API провайдера.</p>
+    <label class="field">
+      <span data-i18n="settings.etherscan">Etherscan API-ключ (все EVM-сети)</span>
+      <input class="input" id="key-etherscan" placeholder="YourApiKeyToken">
+    </label>
+    <label class="field">
+      <span data-i18n="settings.trongrid">TronGrid API-ключ (необязательно)</span>
+      <input class="input" id="key-trongrid" placeholder="xxxxxxxx-xxxx-…">
+    </label>
+    <label class="field">
+      <span data-i18n="settings.solana">Solana RPC URL</span>
+      <input class="input" id="key-solana" placeholder="https://api.mainnet-beta.solana.com">
+    </label>
+    <div class="modal-foot">
+      <button class="btn primary" id="settings-save" data-i18n="settings.save">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<footer class="foot">
+  <span data-i18n="foot.note">Данные берутся из публичных обозревателей блокчейна. Приложение не хранит ваши ключи на сервере.</span>
+</footer>
+
+<script src="assets/js/i18n.js"></script>
+<script src="assets/js/utils.js"></script>
+<script src="assets/js/prices.js"></script>
+<script src="assets/js/providers.js"></script>
+<script src="assets/js/graph.js"></script>
+<script src="assets/js/app.js"></script>
+</body>
+</html>
