@@ -28,6 +28,11 @@ class CanvasView {
     };
   }
 
+  /*
+   * Пока пользователь сам не двигал и не масштабировал схему, она вписывается
+   * заново на каждое изменение размера: иначе карта, посчитанная под ещё не
+   * разложенную панель, остаётся крохотной в пустом поле.
+   */
   resize() {
     const dpr = window.devicePixelRatio || 1;
     const rect = this.canvas.parentElement.getBoundingClientRect();
@@ -35,7 +40,7 @@ class CanvasView {
     this.canvas.height = Math.max(1, rect.height * dpr);
     this.w = rect.width; this.h = rect.height; this.dpr = dpr;
     this.layout?.();
-    this.draw();
+    if (this.touched) this.draw(); else this.fit();
   }
 
   toWorld(mx, my) {
@@ -67,7 +72,7 @@ class CanvasView {
       const r = cv.getBoundingClientRect();
       const mx = e.clientX - r.left, my = e.clientY - r.top;
       if (drag) {
-        if (Math.abs(mx - drag.ox) + Math.abs(my - drag.oy) > 3) drag.moved = true;
+        if (Math.abs(mx - drag.ox) + Math.abs(my - drag.oy) > 3) { drag.moved = true; this.touched = true; }
         this.view.x = drag.vx + (mx - drag.ox);
         this.view.y = drag.vy + (my - drag.oy);
         this.draw();
@@ -102,6 +107,7 @@ class CanvasView {
     });
     cv.addEventListener('wheel', e => {
       e.preventDefault();
+      this.touched = true;
       const r = cv.getBoundingClientRect();
       const mx = e.clientX - r.left, my = e.clientY - r.top;
       const k = e.deltaY < 0 ? 1.12 : 1 / 1.12;
@@ -152,6 +158,7 @@ class CanvasView {
 class FlowMap extends CanvasView {
   setData(data) {
     this.data = data;
+    this.touched = false;
     this.resize();
     this.fit();
   }
@@ -159,7 +166,8 @@ class FlowMap extends CanvasView {
   layout() {
     const d = this.data;
     if (!d || !this.w) return;
-    const CARD_W = 236, CARD_H = 46, ROW_GAP = 13, LINK_W = 168;
+    const few = Math.max(d.sources.length, d.dests.length) <= 6;
+    const CARD_W = 236, CARD_H = 46, ROW_GAP = 13, LINK_W = few ? 104 : 168;
     const CENTER_W = 158, CENTER_H = 168;
 
     const column = (list, x) => {
@@ -173,7 +181,13 @@ class FlowMap extends CanvasView {
       }));
     };
 
-    const rightX = CARD_W + LINK_W + CENTER_W + LINK_W;
+    // пустая сторона не занимает место: иначе кошелёк уезжает вбок от пустой колонки
+    const leftW = d.sources.length ? CARD_W : 0;
+    const rightW = d.dests.length ? CARD_W : 0;
+    const leftGap = leftW ? LINK_W : 0;
+    const rightGap = rightW ? LINK_W : 0;
+    const centerX = leftW + leftGap;
+    const rightX = centerX + CENTER_W + rightGap;
     this.left = column(d.sources, 0);
     this.right = column(d.dests, rightX);
 
@@ -183,7 +197,7 @@ class FlowMap extends CanvasView {
     this.left.forEach(b => { b.y += (maxH - leftH) / 2; });
     this.right.forEach(b => { b.y += (maxH - rightH) / 2; });
 
-    this.center = { x: CARD_W + LINK_W, y: (maxH - CENTER_H) / 2, w: CENTER_W, h: CENTER_H };
+    this.center = { x: centerX, y: (maxH - CENTER_H) / 2, w: CENTER_W, h: CENTER_H };
 
     /*
      * Каждая связь приходит в собственную точку на грани центрального узла:
@@ -202,7 +216,7 @@ class FlowMap extends CanvasView {
     anchors(this.left, this.center.x);
     anchors(this.right, this.center.x + this.center.w);
 
-    this.bounds = { x0: -12, x1: rightX + CARD_W + 12, y0: -30, y1: maxH + 12 };
+    this.bounds = { x0: -12, x1: rightX + rightW + 12, y0: -30, y1: maxH + 12 };
     this.items = [...this.left, ...this.right];
   }
 
@@ -214,8 +228,8 @@ class FlowMap extends CanvasView {
   fit() {
     const b = this.bounds;
     if (!b || !this.w) return;
-    const pad = 22, MIN_FIT = 0.5;
-    const raw = Math.min(this.w / (b.x1 - b.x0 + pad * 2), this.h / (b.y1 - b.y0 + pad * 2), 1.1);
+    const pad = 22, MIN_FIT = 0.5, MAX_FIT = 1.35;
+    const raw = Math.min(this.w / (b.x1 - b.x0 + pad * 2), this.h / (b.y1 - b.y0 + pad * 2), MAX_FIT);
     this.view.scale = Math.max(MIN_FIT, raw);
     const s = this.view.scale;
     this.view.x = this.w / 2 - ((b.x0 + b.x1) / 2) * s;
@@ -360,6 +374,7 @@ class FlowMap extends CanvasView {
 class Timeline extends CanvasView {
   setData(data) {
     this.data = data;
+    this.touched = false;
     this.resize();
     this.fit();
   }

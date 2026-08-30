@@ -41,6 +41,7 @@ class MindMap {
       const leaves = (tree.children || []).reduce((n, g) => n + (g.children?.length || 0), 0);
       if (leaves > 40) for (const g of tree.children || []) this.collapsed.add(g.key);
     }
+    this.touched = false;
     this.resize();
     this.layout();
     this.fit();
@@ -108,7 +109,9 @@ class MindMap {
     this.canvas.width = Math.max(1, rect.width * dpr);
     this.canvas.height = Math.max(1, rect.height * dpr);
     this.w = rect.width; this.h = rect.height; this.dpr = dpr;
-    this.draw();
+    this.layout();
+    // пока схему не трогали руками, она вписывается заново под новый размер
+    if (this.touched) this.draw(); else this.fit();
   }
 
   /*
@@ -292,7 +295,7 @@ class MindMap {
       const r = cv.getBoundingClientRect();
       const mx = e.clientX - r.left, my = e.clientY - r.top;
       if (drag) {
-        if (Math.abs(mx - drag.ox) + Math.abs(my - drag.oy) > 3) drag.moved = true;
+        if (Math.abs(mx - drag.ox) + Math.abs(my - drag.oy) > 3) { drag.moved = true; this.touched = true; }
         this.view.x = drag.vx + (mx - drag.ox);
         this.view.y = drag.vy + (my - drag.oy);
         this.draw();
@@ -332,6 +335,7 @@ class MindMap {
 
     cv.addEventListener('wheel', e => {
       e.preventDefault();
+      this.touched = true;
       const r = cv.getBoundingClientRect();
       const mx = e.clientX - r.left, my = e.clientY - r.top;
       const k = e.deltaY < 0 ? 1.12 : 1 / 1.12;

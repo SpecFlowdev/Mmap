@@ -50,6 +50,7 @@ class TransferGraph {
       this.edges.push({ a: 0, b: this.nodes.length - 1, w: weight, peer: p });
     });
 
+    this.touched = false;
     this.resize();
     this.fit();
     this.simulate(240);
@@ -95,7 +96,7 @@ class TransferGraph {
     this.canvas.width = Math.max(1, rect.width * dpr);
     this.canvas.height = Math.max(1, rect.height * dpr);
     this.w = rect.width; this.h = rect.height; this.dpr = dpr;
-    this.draw();
+    if (this.touched) this.draw(); else this.fit();
   }
 
   fit() {
@@ -195,6 +196,7 @@ class TransferGraph {
     cv.addEventListener('mousemove', e => {
       const r = cv.getBoundingClientRect();
       const mx = e.clientX - r.left, my = e.clientY - r.top;
+      if (drag?.pan || drag?.node) this.touched = true;
       if (drag?.pan) {
         this.view.x = drag.vx + (mx - drag.ox);
         this.view.y = drag.vy + (my - drag.oy);
@@ -218,6 +220,7 @@ class TransferGraph {
 
     cv.addEventListener('wheel', e => {
       e.preventDefault();
+      this.touched = true;
       const r = cv.getBoundingClientRect();
       const mx = e.clientX - r.left, my = e.clientY - r.top;
       const k = e.deltaY < 0 ? 1.12 : 1 / 1.12;

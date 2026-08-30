@@ -121,8 +121,9 @@ function toggleFullscreen(force) {
   const on = force ?? !panel.classList.contains('fullscreen');
   panel.classList.toggle('fullscreen', on);
   document.body.classList.toggle('fs-lock', on);
-  el('graph-full').textContent = t(on ? 'graph.exit' : 'graph.full');
-  el('graph-full').dataset.i18n = on ? 'graph.exit' : 'graph.full';
+  const btn = el('graph-full');
+  btn.title = t(on ? 'graph.exit' : 'graph.full');
+  btn.dataset.i18nAttr = 'title:' + (on ? 'graph.exit' : 'graph.full');
   // размеры канваса зависят от контейнера — пересобираем схему под новый размер
   requestAnimationFrame(() => {
     const v = activeView();
@@ -205,7 +206,11 @@ async function scan() {
     location.hash = `${chain}:${address}`;
   } catch (e) {
     console.error(e);
-    status(t('msg.error', { e: e.message || e }), true);
+    // лимит провайдера — отдельный случай: подсказываем, что делать, и не трогаем то, что уже показано
+    const msg = /RATE_LIMIT/.test(e.message || '')
+      ? t('msg.ratelimit', { c: CHAINS[chain]?.name || chain })
+      : t('msg.error', { e: e.message || e });
+    status(msg, true);
   } finally {
     btn.disabled = false;
   }
@@ -431,8 +436,8 @@ function buildFlow() {
     labelOut: t('flow.receivers', { n: sides.out.size }),
     inWord: t('flow.inWord'),
     outWord: t('flow.outWord'),
-    inTotal: usdIn ? fmtUsd(usdIn) : fmtAmount(amtIn),
-    outTotal: usdOut ? fmtUsd(usdOut) : fmtAmount(amtOut)
+    inTotal: usdIn ? fmtUsd(usdIn) : (amtIn ? fmtAmount(amtIn) : fmtUsd(0)),
+    outTotal: usdOut ? fmtUsd(usdOut) : (amtOut ? fmtAmount(amtOut) : fmtUsd(0))
   };
 }
 

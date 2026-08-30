@@ -22,9 +22,12 @@ function fmtAmount(n, decimals = 6) {
 
 function fmtUsd(n) {
   if (n === null || n === undefined || !isFinite(n)) return '—';
+  if (n === 0) return '$0';
   const abs = Math.abs(n);
+  // мелочь показываем точнее, но без хвоста нулей: $0.0000 читается как мусор
   const d = abs >= 1000 ? 0 : abs >= 1 ? 2 : 4;
-  return '$' + n.toLocaleString('en-US', { maximumFractionDigits: d, minimumFractionDigits: d });
+  const body = n.toLocaleString('en-US', { maximumFractionDigits: d, minimumFractionDigits: 0 });
+  return '$' + body;
 }
 
 function fmtDate(ts) {
@@ -45,12 +48,16 @@ function scaleUnits(raw, decimals) {
   return Number(int + '.' + frac);
 }
 
-async function fetchJson(url, opts = {}, retries = 2) {
+async function fetchJson(url, opts = {}, retries = 3) {
   let lastErr;
   for (let i = 0; i <= retries; i++) {
     try {
       const res = await fetch(url, opts);
-      if (res.status === 429) { await sleep(900 * (i + 1)); lastErr = new Error('rate limited (429)'); continue; }
+      if (res.status === 429) {
+        await sleep(1200 * (i + 1));
+        lastErr = new Error('RATE_LIMIT');
+        continue;
+      }
       if (!res.ok) throw new Error('HTTP ' + res.status);
       return await res.json();
     } catch (e) {

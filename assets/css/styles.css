@@ -133,6 +133,8 @@ a:hover { text-decoration: underline; text-decoration-color: var(--text-dim); }
 .btn.primary:hover { opacity: .9; }
 .btn.ghost { background: transparent; }
 .btn.small { padding: 5px 10px; font-size: 12px; }
+.btn.icon { padding: 5px 7px; display: inline-flex; align-items: center; justify-content: center; }
+.btn.icon svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .btn:disabled { opacity: .5; cursor: default; }
 
 .input {
@@ -238,8 +240,9 @@ a:hover { text-decoration: underline; text-decoration-color: var(--text-dim); }
 }
 .panel-head {
   display: flex; align-items: center; gap: 10px;
-  padding: 12px 14px; border-bottom: 1px solid var(--line);
+  padding: 11px 14px; border-bottom: 1px solid var(--line); min-height: 48px;
 }
+.panel-head h2 { white-space: nowrap; }
 .panel-tools { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 
 /* ---------- graph ---------- */
