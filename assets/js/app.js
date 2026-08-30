@@ -12,7 +12,7 @@ const state = {
   assetFilter: 'all',
   peers: new Set(),   // выбранные контрагенты; пусто = все
   hidden: new Set(),  // контрагенты, убранные со схемы правым кликом
-  view: 'flow',
+  view: 'mind',
   groupMode: 'asset'
 };
 let graph, mindmap, flowmap, timeline;
@@ -112,6 +112,23 @@ async function importWallets(file) {
   } catch {
     status(t('saved.badfile'), true);
   }
+}
+
+
+/* --------------------------------------------------- полноэкранный режим */
+function toggleFullscreen(force) {
+  const panel = document.querySelector('.graph-panel');
+  const on = force ?? !panel.classList.contains('fullscreen');
+  panel.classList.toggle('fullscreen', on);
+  document.body.classList.toggle('fs-lock', on);
+  el('graph-full').textContent = t(on ? 'graph.exit' : 'graph.full');
+  el('graph-full').dataset.i18n = on ? 'graph.exit' : 'graph.full';
+  // размеры канваса зависят от контейнера — пересобираем схему под новый размер
+  requestAnimationFrame(() => {
+    const v = activeView();
+    v.resize();
+    v.fit?.();
+  });
 }
 
 /* ------------------------------------------------------------- статусы */
@@ -236,12 +253,13 @@ function visibleTransfers(useTextFilter = true, usePeerFilter = true) {
  * В группе показываем до 12 самых крупных контрагентов, остальные сворачиваем
  * в один узел «ещё N», чтобы карта оставалась читаемой.
  */
-const PEERS_PER_GROUP = 8;
+// показываем всех контрагентов: схема может не влезать в экран, для этого есть панорама и полный экран
+const PEERS_PER_GROUP = Infinity;
 
 function buildTree() {
   const cs = getComputedStyle(document.documentElement);
-  const colIn = cs.getPropertyValue('--node-in').trim();
-  const colOut = cs.getPropertyValue('--node-out').trim();
+  const colIn = cs.getPropertyValue('--map-in').trim();
+  const colOut = cs.getPropertyValue('--map-out').trim();
   const txs = visibleTransfers();
 
   const groups = new Map();
@@ -268,6 +286,7 @@ function buildTree() {
   const children = sorted.map(g => {
     const label = state.groupMode === 'dir' ? t('dir.' + g.key) : g.key;
     const color = state.groupMode === 'dir' ? (g.key === 'out' ? colOut : colIn) : undefined;
+    const groupDashed = state.groupMode === 'dir' && g.key === 'out';
     const peers = [...g.peers.values()].sort((a, b) => b.usd - a.usd || b.txs - a.txs);
     const head = peers.slice(0, PEERS_PER_GROUP);
     const rest = peers.slice(PEERS_PER_GROUP);
@@ -285,6 +304,7 @@ function buildTree() {
         label: `${arrow} ${shortAddr(pr.addr, 8, 6)}`,
         sub,
         color: color || dirColor,
+        dashed: pr.out > inTxs,
         addr: pr.addr,
         tip: `<b>${pr.addr}</b><br>` +
              `${t('dir.in')}: ${inTxs}× ${fmtUsd(pr.usdIn)} · ${t('dir.out')}: ${pr.out}× ${fmtUsd(pr.usdOut)}<br>` +
@@ -299,7 +319,8 @@ function buildTree() {
         key: `${g.key}|rest`,
         label: t('mm.more', { n: rest.length }),
         sub: `${restTxs} ${t('peers.txs')} · ${fmtUsd(restUsd)}`,
-        color: color || cs.getPropertyValue('--text-dim').trim()
+        color: color || cs.getPropertyValue('--map-line').trim(),
+        dashed: groupDashed
       });
     }
 
@@ -307,7 +328,8 @@ function buildTree() {
       key: 'g|' + g.key,
       label,
       sub: `${g.txs} ${t('peers.txs')} · ${g.usd ? fmtUsd(g.usd) : ''}`.trim(),
-      color: color || cs.getPropertyValue('--accent').trim(),
+      color: color || cs.getPropertyValue('--map-line').trim(),
+      dashed: groupDashed,
       children: kids
     };
   });
@@ -346,7 +368,7 @@ function setView(view) {
  * Отправители и получатели считаются раздельно, вес — сумма в USD,
  * а если цены нет — объём в монетах.
  */
-const FLOW_SIDE_LIMIT = 10;
+const FLOW_SIDE_LIMIT = Infinity;
 
 function buildFlow() {
   const txs = visibleTransfers();
@@ -588,7 +610,10 @@ function renderGraph() {
   const view = state.view;
   if (view === 'mind') {
     mindmap.resize();
-    mindmap.setData(buildTree());
+    // отпечаток набора: при смене данных ветки сворачиваются заново, при раскрытии — нет
+    const key = [state.address, state.chain, state.groupMode, state.assetFilter,
+                 state.dirFilter, state.filter, [...state.peers].join(','), [...state.hidden].join(',')].join('|');
+    mindmap.setData(buildTree(), key);
   } else if (view === 'flow') {
     flowmap.setData(buildFlow());
   } else if (view === 'time') {
@@ -689,6 +714,10 @@ function bind() {
   });
 
   el('graph-fit').addEventListener('click', () => activeView().fit());
+  el('graph-full').addEventListener('click', () => toggleFullscreen());
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.querySelector('.graph-panel.fullscreen')) toggleFullscreen(false);
+  });
   el('graph-export').addEventListener('click', () => {
     const v = activeView();
     v.exportPng(v === graph || v === mindmap ? undefined : `mmap-${state.view}.png`);
@@ -698,7 +727,6 @@ function bind() {
   el('group-mode').addEventListener('change', e => {
     state.groupMode = e.target.value;
     store.set('groupMode', state.groupMode);
-    mindmap.collapsed.clear();
     renderGraph();
   });
   el('csv-export').addEventListener('click', exportCsv);
@@ -746,7 +774,7 @@ function init() {
   bind();
   state.groupMode = store.get('groupMode', 'asset');
   el('group-mode').value = state.groupMode;
-  setView(store.get('view', 'flow'));
+  setView(store.get('view', 'mind'));
   renderSaved();
 
   const hash = decodeURIComponent(location.hash.replace(/^#/, ''));

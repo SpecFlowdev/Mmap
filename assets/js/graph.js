@@ -22,8 +22,9 @@ class TransferGraph {
     const cs = getComputedStyle(document.documentElement);
     const v = n => cs.getPropertyValue(n).trim();
     return {
-      self: v('--node-self'), in: v('--node-in'), out: v('--node-out'),
-      text: v('--text'), dim: v('--text-dim'), line: v('--line'), bg: v('--bg-sunk')
+      self: v('--map-self'), selfText: v('--map-self-text'),
+      in: v('--map-in'), out: v('--map-out'),
+      text: v('--text'), dim: v('--text-dim'), line: v('--map-line'), bg: v('--bg-sunk')
     };
   }
 
@@ -130,9 +131,12 @@ class TransferGraph {
       ctx.moveTo(a.x, a.y);
       ctx.quadraticCurveTo(mx, my, b.x, b.y);
       ctx.strokeStyle = node.dir === 'out' ? c.out : c.in;
-      ctx.globalAlpha = hot ? 0.95 : 0.30 + e.w * 0.4;
-      ctx.lineWidth = Math.max(1, (0.8 + e.w * 5) * this.view.scale);
+      ctx.globalAlpha = hot ? 1 : 0.28 + e.w * 0.35;
+      ctx.lineWidth = Math.max(0.8, (0.6 + e.w * 2.4) * this.view.scale);
+      // исходящие — пунктир, направление читается без цвета
+      ctx.setLineDash(node.dir === 'out' ? [6 * this.view.scale, 4 * this.view.scale] : []);
       ctx.stroke();
+      ctx.setLineDash([]);
       ctx.globalAlpha = 1;
     }
 
@@ -142,17 +146,24 @@ class TransferGraph {
       const col = n.self ? c.self : (n.dir === 'out' ? c.out : c.in);
       ctx.beginPath();
       ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = col;
       ctx.globalAlpha = this.hover && this.hover !== n && !n.self ? 0.45 : 1;
-      ctx.fill();
+      // получатели — полый кружок, отправители — залитый
+      if (n.dir === 'out' && !n.self) {
+        ctx.fillStyle = c.bg;
+        ctx.fill();
+        ctx.lineWidth = 1.4; ctx.strokeStyle = col; ctx.stroke();
+      } else {
+        ctx.fillStyle = col;
+        ctx.fill();
+      }
       ctx.globalAlpha = 1;
       if (n === this.hover || n.self) {
-        ctx.lineWidth = 2; ctx.strokeStyle = c.text; ctx.globalAlpha = 0.5;
+        ctx.lineWidth = 1.4; ctx.strokeStyle = c.text; ctx.globalAlpha = 0.55;
         ctx.stroke(); ctx.globalAlpha = 1;
       }
       if (n.self || r > 9) {
         ctx.fillStyle = c.text;
-        ctx.font = `${n.self ? 600 : 400} ${n.self ? 12 : 11}px ui-monospace, Menlo, monospace`;
+        ctx.font = `${n.self ? 600 : 400} ${n.self ? 12 : 11}px "JetBrains Mono", ui-monospace, monospace`;
         ctx.textAlign = 'center';
         ctx.fillText(shortAddr(n.id, n.self ? 8 : 5, 4), p.x, p.y + r + 13);
       }

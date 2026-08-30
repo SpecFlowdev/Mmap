@@ -21,9 +21,10 @@ class CanvasView {
     const cs = getComputedStyle(document.documentElement);
     const v = n => cs.getPropertyValue(n).trim();
     return {
-      self: v('--node-self'), in: v('--node-in'), out: v('--node-out'),
-      text: v('--text'), dim: v('--text-dim'), line: v('--line'),
-      bg: v('--bg-sunk'), elev: v('--bg-elev'), accent: v('--accent')
+      self: v('--map-self'), selfText: v('--map-self-text'),
+      in: v('--map-in'), out: v('--map-out'),
+      text: v('--text'), dim: v('--text-dim'), line: v('--map-line'),
+      bg: v('--bg-sunk'), elev: v('--map-node'), accent: v('--map-hi')
     };
   }
 
@@ -158,7 +159,7 @@ class FlowMap extends CanvasView {
   layout() {
     const d = this.data;
     if (!d || !this.w) return;
-    const CARD_W = 236, CARD_H = 46, ROW_GAP = 9, LINK_W = 168;
+    const CARD_W = 236, CARD_H = 46, ROW_GAP = 13, LINK_W = 168;
     const CENTER_W = 158, CENTER_H = 168;
 
     const column = (list, x) => {
@@ -195,7 +196,7 @@ class FlowMap extends CanvasView {
       list.forEach((b, i) => {
         b.ax = edgeX;
         b.ay = list.length > 1 ? top + step * i : this.center.y + this.center.h / 2;
-        b.lw = Math.max(2.5, Math.min(15, 2.5 + b.share * 34));
+        b.lw = Math.max(1, Math.min(6, 1 + b.share * 13));
       });
     };
     anchors(this.left, this.center.x);
@@ -205,14 +206,23 @@ class FlowMap extends CanvasView {
     this.items = [...this.left, ...this.right];
   }
 
+  /*
+   * Показываем всех контрагентов, поэтому схема часто выше экрана.
+   * Ужимаем только до предела читаемости, дальше — панорама и полный экран,
+   * а кошелёк держим по центру, чтобы он всегда был виден.
+   */
   fit() {
     const b = this.bounds;
     if (!b || !this.w) return;
-    const pad = 22;
-    const s = Math.min(this.w / (b.x1 - b.x0 + pad * 2), this.h / (b.y1 - b.y0 + pad * 2), 1.1);
-    this.view.scale = Math.max(0.18, s);
-    this.view.x = this.w / 2 - ((b.x0 + b.x1) / 2) * this.view.scale;
-    this.view.y = this.h / 2 - ((b.y0 + b.y1) / 2) * this.view.scale;
+    const pad = 22, MIN_FIT = 0.5;
+    const raw = Math.min(this.w / (b.x1 - b.x0 + pad * 2), this.h / (b.y1 - b.y0 + pad * 2), 1.1);
+    this.view.scale = Math.max(MIN_FIT, raw);
+    const s = this.view.scale;
+    this.view.x = this.w / 2 - ((b.x0 + b.x1) / 2) * s;
+    const contentH = (b.y1 - b.y0) * s;
+    this.view.y = contentH > this.h - pad * 2
+      ? this.h / 2 - (this.center.y + this.center.h / 2) * s
+      : this.h / 2 - ((b.y0 + b.y1) / 2) * s;
     this.draw();
   }
 
@@ -232,19 +242,18 @@ class FlowMap extends CanvasView {
       const x1 = fromCard ? b.x + b.w : b.x;
       const y1 = b.y + b.h / 2;
       const x2 = b.ax, y2 = b.ay;
-      const grad = ctx.createLinearGradient(x1, y1, x2, y2);
-      const [a, z] = fromCard ? [color, c.self] : [c.self, color];
-      grad.addColorStop(0, a);
-      grad.addColorStop(1, z);
       const mid = (x1 + x2) / 2;
       ctx.beginPath();
       ctx.moveTo(x1, y1);
       ctx.bezierCurveTo(mid, y1, mid, y2, x2, y2);
-      ctx.strokeStyle = grad;
+      ctx.strokeStyle = this.hover === b ? c.accent : color;
       ctx.lineWidth = b.lw;
       ctx.lineCap = 'round';
-      ctx.globalAlpha = this.hover ? (this.hover === b ? 0.95 : 0.12) : 0.6;
+      // исходящие — пунктир: направление читается без цвета
+      ctx.setLineDash(fromCard ? [] : [7, 5]);
+      ctx.globalAlpha = this.hover ? (this.hover === b ? 1 : 0.16) : 0.7;
       ctx.stroke();
+      ctx.setLineDash([]);
       ctx.globalAlpha = 1;
     };
     this.left.forEach(b => link(b, true, c.in));
@@ -278,17 +287,17 @@ class FlowMap extends CanvasView {
       const left = b.x + pad, right = b.x + b.w - pad;
       ctx.textAlign = 'left';
       ctx.fillStyle = c.text;
-      ctx.font = '500 12.5px ui-monospace, Menlo, Consolas, monospace';
+      ctx.font = '500 12.5px "JetBrains Mono", ui-monospace, monospace';
       ctx.fillText(this._clip(ctx, b.label, b.w - pad * 2 - 40), left, b.y + 19);
 
-      ctx.font = '400 11px ui-sans-serif, system-ui, sans-serif';
+      ctx.font = '400 11px Inter, system-ui, sans-serif';
       ctx.fillStyle = c.dim;
       ctx.fillText(b.sub, left, b.y + 34);
 
       // доля справа крупной цифрой
       ctx.textAlign = 'right';
-      ctx.font = '600 12px ui-sans-serif, system-ui, sans-serif';
-      ctx.fillStyle = color;
+      ctx.font = '600 12px Inter, system-ui, sans-serif';
+      ctx.fillStyle = c.dim;
       ctx.fillText(Math.round(b.share * 100) + '%', right, b.y + 19);
       ctx.globalAlpha = 1;
     };
@@ -300,38 +309,43 @@ class FlowMap extends CanvasView {
     this._roundRect(ctx, cn.x, cn.y, cn.w, cn.h, 14);
     ctx.fillStyle = c.self;
     ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = c.line;
+    ctx.stroke();
     const cx = cn.x + cn.w / 2;
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#fff';
-    ctx.font = '600 12.5px ui-monospace, Menlo, monospace';
+    ctx.fillStyle = c.selfText;
+    ctx.font = '600 12.5px "JetBrains Mono", ui-monospace, monospace';
     ctx.fillText(this._clip(ctx, d.selfLabel, cn.w - 20), cx, cn.y + 34);
-    ctx.font = '400 11px ui-sans-serif, system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,.8)';
+    ctx.font = '400 11px Inter, system-ui, sans-serif';
+    ctx.globalAlpha = 0.7;
     ctx.fillText(this._clip(ctx, d.chainLabel, cn.w - 20), cx, cn.y + 52);
+    ctx.globalAlpha = 1;
 
     ctx.beginPath();
     ctx.moveTo(cn.x + 18, cn.y + 70); ctx.lineTo(cn.x + cn.w - 18, cn.y + 70);
-    ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.globalAlpha = 0.6; ctx.stroke(); ctx.globalAlpha = 1;
 
     const money = (label, value, y) => {
       ctx.textAlign = 'center';
-      ctx.font = '400 10px ui-sans-serif, system-ui, sans-serif';
-      ctx.fillStyle = 'rgba(255,255,255,.7)';
+      ctx.font = '400 10px Inter, system-ui, sans-serif';
+      ctx.fillStyle = c.selfText;
+      ctx.globalAlpha = 0.7;
       ctx.fillText(label, cx, y);
-      ctx.font = '600 13px ui-sans-serif, system-ui, sans-serif';
-      ctx.fillStyle = '#fff';
+      ctx.globalAlpha = 1;
+      ctx.font = '600 13px Inter, system-ui, sans-serif';
       ctx.fillText(value, cx, y + 17);
     };
     money(d.inWord, d.inTotal, cn.y + 90);
     money(d.outWord, d.outTotal, cn.y + 130);
 
     // заголовки колонок
-    ctx.font = '600 12px ui-sans-serif, system-ui, sans-serif';
+    ctx.font = '600 12px Inter, system-ui, sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillStyle = c.in;
+    ctx.fillStyle = c.dim;
     ctx.fillText(d.labelIn, this.left[0]?.x ?? 0, this.bounds.y0 + 14);
     ctx.textAlign = 'right';
-    ctx.fillStyle = c.out;
+    ctx.fillStyle = c.dim;
     const rEdge = (this.right[0]?.x ?? cn.x + cn.w) + (this.right[0]?.w ?? 0);
     ctx.fillText(d.labelOut, rEdge, this.bounds.y0 + 14);
     ctx.restore();
@@ -424,28 +438,33 @@ class Timeline extends CanvasView {
     ctx.strokeStyle = c.line; ctx.lineWidth = 1.5; ctx.stroke();
 
     ctx.textAlign = 'left';
-    ctx.font = '600 12px ui-sans-serif, system-ui, sans-serif';
-    ctx.fillStyle = c.in;
+    ctx.font = '600 12px Inter, system-ui, sans-serif';
+    ctx.fillStyle = c.dim;
     ctx.fillText(d.labelIn, 0, this.bounds.y0 + 12);
-    ctx.fillStyle = c.out;
     ctx.fillText(d.labelOut, 0, this.bounds.y1 - 4);
 
     for (const p of this.items) {
       const dim = this.hover && this.hover !== p;
+      const out = p.dir === 'out';
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fillStyle = p.dir === 'out' ? c.out : c.in;
-      ctx.globalAlpha = dim ? 0.18 : 0.55;
-      ctx.fill();
-      ctx.globalAlpha = dim ? 0.3 : 1;
-      ctx.lineWidth = p === this.hover ? 2 : 1;
-      ctx.strokeStyle = p === this.hover ? c.accent : (p.dir === 'out' ? c.out : c.in);
+      // входящие — залитый круг, исходящие — контур: направление без цвета
+      if (!out) {
+        ctx.fillStyle = c.in;
+        ctx.globalAlpha = dim ? 0.14 : 0.4;
+        ctx.fill();
+      }
+      ctx.globalAlpha = dim ? 0.25 : 1;
+      ctx.lineWidth = p === this.hover ? 1.8 : 1.2;
+      ctx.strokeStyle = p === this.hover ? c.accent : (out ? c.out : c.in);
+      ctx.setLineDash(out ? [4, 3] : []);
       ctx.stroke();
+      ctx.setLineDash([]);
       ctx.globalAlpha = 1;
     }
 
     // даты — поверх пузырьков, с подложкой, чтобы всегда читались
-    ctx.font = '400 11px ui-sans-serif, system-ui, sans-serif';
+    ctx.font = '400 11px Inter, system-ui, sans-serif';
     ctx.textAlign = 'center';
     for (let i = 0; i <= 4; i++) {
       const x = (W / 4) * i;

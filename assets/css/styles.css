@@ -1,3 +1,39 @@
+/* Шрифты вшиты в образ: панель одинаково выглядит и без интернета */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('../fonts/inter-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('../fonts/inter-cyrillic.woff2') format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('../fonts/mono-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('../fonts/mono-cyrillic.woff2') format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+
 :root {
   --bg: #f5f6f8;
   --bg-elev: #ffffff;
@@ -5,13 +41,18 @@
   --line: #d9dce3;
   --text: #14161a;
   --text-dim: #5d6470;
-  --accent: #3b6ef6;
-  --accent-soft: rgba(59, 110, 246, .12);
-  --pos: #128a4d;
+  --accent: #2f6ae1;
+  --accent-soft: rgba(47, 106, 225, .10);
+  --pos: #0f7a45;
   --neg: #c0392b;
-  --node-self: #3b6ef6;
-  --node-in: #128a4d;
-  --node-out: #c0392b;
+  /* схемы монохромные: направление различается не цветом, а насыщенностью и штрихом */
+  --map-line: #c4c9d1;
+  --map-in: #5b6795;
+  --map-out: #8b93b4;
+  --map-node: #ffffff;
+  --map-self: #3e4663;
+  --map-self-text: #ffffff;
+  --map-hi: #14161a;
   --shadow: 0 1px 2px rgba(16, 20, 30, .06), 0 8px 24px rgba(16, 20, 30, .06);
   --radius: 12px;
   color-scheme: light;
@@ -23,13 +64,17 @@
   --line: #2c3037;
   --text: #e6e8ec;
   --text-dim: #939aa6;
-  --accent: #6d97ff;
-  --accent-soft: rgba(109, 151, 255, .14);
-  --pos: #4bd08b;
-  --neg: #ff6b5e;
-  --node-self: #6d97ff;
-  --node-in: #4bd08b;
-  --node-out: #ff6b5e;
+  --accent: #7aa2ff;
+  --accent-soft: rgba(122, 162, 255, .14);
+  --pos: #45c98a;
+  --neg: #ff6f61;
+  --map-line: #3a3f47;
+  --map-in: #8a97c9;
+  --map-out: #6d769b;
+  --map-node: #23272d;
+  --map-self: #4a5273;
+  --map-self-text: #f2f4f7;
+  --map-hi: #e6e8ec;
   --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px rgba(0, 0, 0, .35);
   color-scheme: dark;
 }
@@ -40,13 +85,16 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.5 ui-sans-serif, -apple-system, "Segoe UI", Roboto, Inter, Arial, sans-serif;
+  font: 400 13.5px/1.55 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-feature-settings: 'cv05' 1, 'ss03' 1, 'tnum' 1;
+  letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 h1, h2 { margin: 0; font-weight: 600; }
 h2 { font-size: 14px; letter-spacing: .01em; }
 a { color: var(--accent); text-decoration: none; }
-a:hover { text-decoration: underline; }
+a:hover { text-decoration: underline; text-decoration-color: var(--text-dim); }
 .muted { color: var(--text-dim); }
 .spacer { flex: 1; }
 
@@ -100,7 +148,7 @@ a:hover { text-decoration: underline; }
 /* ---------- search ---------- */
 .search { padding: 20px; max-width: 1400px; margin: 0 auto; width: 100%; }
 .search-row { display: flex; gap: 10px; }
-.search-row #address-input { flex: 1; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.search-row #address-input { flex: 1; font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
 .search-row .select { width: 190px; }
 .search-meta { display: flex; align-items: center; gap: 14px; margin-top: 10px; flex-wrap: wrap; }
 .hint { font-size: 12px; color: var(--text-dim); }
@@ -133,7 +181,7 @@ a:hover { text-decoration: underline; }
   font-style: normal; font-size: 10px; font-weight: 700; letter-spacing: .04em;
   color: var(--accent); background: var(--accent-soft); padding: 2px 6px; border-radius: 10px;
 }
-.chip-addr { font-family: ui-monospace, Menlo, Consolas, monospace; }
+.chip-addr { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
 .chip-sub { font-style: normal; font-size: 11px; color: var(--text-dim); }
 .chip-x {
   border: 0; background: transparent; color: var(--text-dim);
@@ -153,6 +201,7 @@ a:hover { text-decoration: underline; }
 .stat-value.neg { color: var(--neg); }
 
 /* ---------- выбор кошельков ---------- */
+/* панель выбора: нейтральная рамка, без цветного акцента */
 .selection {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   max-width: 1400px; margin: 8px auto 0; width: 100%;
@@ -207,15 +256,23 @@ a:hover { text-decoration: underline; }
 }
 .legend span { display: inline-flex; align-items: center; gap: 5px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
-.dot.self { background: var(--node-self); }
-.dot.in { background: var(--node-in); }
-.dot.out { background: var(--node-out); }
+.dot.self { background: var(--map-self); box-shadow: inset 0 0 0 1px var(--map-line); }
+.dot.in { background: var(--map-in); }
+.dot.out { background: transparent; box-shadow: inset 0 0 0 1.5px var(--map-out); }
 .tip {
   position: absolute; pointer-events: none; z-index: 5;
   background: var(--bg-elev); border: 1px solid var(--line); border-radius: 8px;
   padding: 8px 10px; font-size: 12px; box-shadow: var(--shadow); max-width: 280px;
 }
-.tip b { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 600; }
+.tip b { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
+
+/* ---------- полный экран для схемы ---------- */
+.graph-panel.fullscreen {
+  position: fixed; inset: 0; z-index: 60; border-radius: 0; margin: 0;
+  display: flex; flex-direction: column;
+}
+.graph-panel.fullscreen .graph-wrap { flex: 1; height: auto; }
+body.fs-lock { overflow: hidden; }
 
 /* ---------- table ---------- */
 .table-wrap { max-height: 460px; overflow: auto; }
@@ -230,11 +287,11 @@ a:hover { text-decoration: underline; }
 .tx-table th[data-sort]:hover { color: var(--text); }
 .tx-table td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .tx-table tr:hover td { background: var(--bg-sunk); }
-.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+.mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .tag { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
-.tag.in { background: color-mix(in srgb, var(--pos) 16%, transparent); color: var(--pos); }
-.tag.out { background: color-mix(in srgb, var(--neg) 16%, transparent); color: var(--neg); }
-.amount { font-family: ui-monospace, Menlo, Consolas, monospace; white-space: nowrap; }
+.tag.in { background: color-mix(in srgb, var(--pos) 15%, transparent); color: var(--pos); }
+.tag.out { background: color-mix(in srgb, var(--neg) 15%, transparent); color: var(--neg); }
+.amount { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
 .amount.in { color: var(--pos); }
 .amount.out { color: var(--neg); }
 .table-foot { padding: 8px 14px; font-size: 12px; color: var(--text-dim); border-top: 1px solid var(--line); }
@@ -245,7 +302,7 @@ a:hover { text-decoration: underline; }
 .peer { padding: 10px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
 .peer:hover { background: var(--bg-sunk); }
 .peer-top { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
-.peer-addr { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+.peer-addr { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .peer-usd { font-weight: 600; font-size: 12px; }
 .peer-bar { height: 4px; border-radius: 3px; background: var(--bg-sunk); margin-top: 7px; overflow: hidden; }
 .peer-bar > i { display: block; height: 100%; background: var(--accent); }

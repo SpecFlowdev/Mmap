@@ -21,15 +21,26 @@ class MindMap {
     const cs = getComputedStyle(document.documentElement);
     const v = n => cs.getPropertyValue(n).trim();
     return {
-      self: v('--node-self'), in: v('--node-in'), out: v('--node-out'),
-      text: v('--text'), dim: v('--text-dim'), line: v('--line'),
-      bg: v('--bg-sunk'), elev: v('--bg-elev'), accent: v('--accent')
+      self: v('--map-self'), selfText: v('--map-self-text'),
+      in: v('--map-in'), out: v('--map-out'),
+      text: v('--text'), dim: v('--text-dim'), line: v('--map-line'),
+      bg: v('--bg-sunk'), elev: v('--map-node'), accent: v('--map-hi')
     };
   }
 
-  /** tree: { label, sub, kind, children: [...] } */
-  setData(tree) {
+  /**
+   * tree: { label, sub, children: [...] }, dataKey — отпечаток набора данных.
+   * Когда листьев слишком много, ветки на старте сворачиваем: карта остаётся
+   * обозримой, а раскрыть любую ветку целиком можно кружком «+».
+   */
+  setData(tree, dataKey) {
     this.root = tree;
+    if (dataKey !== this._dataKey) {
+      this._dataKey = dataKey;
+      this.collapsed.clear();
+      const leaves = (tree.children || []).reduce((n, g) => n + (g.children?.length || 0), 0);
+      if (leaves > 40) for (const g of tree.children || []) this.collapsed.add(g.key);
+    }
     this.resize();
     this.layout();
     this.fit();
@@ -41,11 +52,11 @@ class MindMap {
     if (!this.root || !ctx) return;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-    const GAP_X = 56, ROW = 34, PAD = 11, MAXW = 250;
+    const GAP_X = 60, ROW = 44, PAD = 12, MAXW = 250;
     const measure = node => {
-      ctx.font = `${node.depth === 0 ? '600 13px' : node.depth === 1 ? '600 12px' : '400 12px'} ui-sans-serif, system-ui, sans-serif`;
+      ctx.font = `${node.depth === 0 ? '600 13px' : node.depth === 1 ? '600 12px' : '400 12px'} Inter, system-ui, sans-serif`;
       const wLabel = ctx.measureText(node.label).width;
-      ctx.font = '400 11px ui-monospace, Menlo, monospace';
+      ctx.font = '400 11px "JetBrains Mono", ui-monospace, monospace';
       const wSub = node.sub ? ctx.measureText(node.sub).width : 0;
       node.w = Math.min(MAXW, Math.max(wLabel, wSub) + PAD * 2);
       node.h = node.sub ? 36 : 26;
@@ -144,9 +155,11 @@ class MindMap {
       ctx.moveTo(x1 + 14, y1);
       ctx.bezierCurveTo(mid, y1, mid, y2, x2, y2);
       ctx.strokeStyle = n.color || c.line;
-      ctx.globalAlpha = this.hover && !this._isKin(n) ? 0.25 : 0.75;
-      ctx.lineWidth = n.depth === 1 ? 2 : 1.4;
+      ctx.globalAlpha = this.hover && !this._isKin(n) ? 0.2 : 0.7;
+      ctx.lineWidth = n.depth === 1 ? 1.4 : 1;
+      ctx.setLineDash(n.dashed ? [6, 4] : []);
       ctx.stroke();
+      ctx.setLineDash([]);
       ctx.globalAlpha = 1;
     }
 
@@ -161,8 +174,8 @@ class MindMap {
       this._roundRect(ctx, x, y, n.w, n.h, r);
       ctx.fillStyle = n.depth === 0 ? c.self : c.elev;
       ctx.fill();
-      ctx.lineWidth = n === this.hover ? 2 : 1;
-      ctx.strokeStyle = n === this.hover ? c.accent : (n.depth === 1 ? accent : c.line);
+      ctx.lineWidth = n === this.hover ? 1.6 : 1;
+      ctx.strokeStyle = n === this.hover ? c.accent : c.line;
       ctx.stroke();
 
       // цветная полоска слева — направление или актив
@@ -178,12 +191,13 @@ class MindMap {
 
       const cx = x + 11;
       ctx.textAlign = 'left';
-      ctx.fillStyle = n.depth === 0 ? '#fff' : c.text;
-      ctx.font = `${n.depth === 0 ? '600 13px' : n.depth === 1 ? '600 12px' : '400 12px'} ui-sans-serif, system-ui, sans-serif`;
+      ctx.fillStyle = n.depth === 0 ? c.selfText : c.text;
+      ctx.font = `${n.depth === 0 ? '600 13px' : n.depth === 1 ? '600 12px' : '400 12px'} Inter, system-ui, sans-serif`;
       ctx.fillText(this._clip(ctx, n.label, n.w - 22), cx, n.sub ? n.y - 3 : n.y + 4);
       if (n.sub) {
-        ctx.font = '400 11px ui-monospace, Menlo, monospace';
-        ctx.fillStyle = n.depth === 0 ? 'rgba(255,255,255,.8)' : c.dim;
+        ctx.font = '400 11px "JetBrains Mono", ui-monospace, monospace';
+        ctx.fillStyle = n.depth === 0 ? c.selfText : c.dim;
+        if (n.depth === 0) ctx.globalAlpha *= 0.75;
         ctx.fillText(this._clip(ctx, n.sub, n.w - 22), cx, n.y + 12);
       }
 
@@ -204,7 +218,7 @@ class MindMap {
         if (!n.open) { ctx.moveTo(tx, ty - 3.5); ctx.lineTo(tx, ty + 3.5); }
         ctx.stroke();
         if (!n.open) {
-          ctx.font = '400 10px ui-sans-serif, system-ui, sans-serif';
+          ctx.font = '400 10px Inter, system-ui, sans-serif';
           ctx.fillStyle = c.dim;
           ctx.fillText(String(n.children.length), tx + 12, ty + 3.5);
         }
