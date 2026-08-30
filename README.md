@@ -36,6 +36,9 @@ docker compose up -d --build
 MMAP_PORT=8080 docker compose up -d --build   # http://localhost:8080
 ```
 
+Если после пересборки видна старая версия — жёстко обновите страницу
+(`Ctrl+F5`, на macOS `Cmd+Shift+R`): это кэш браузера, сервер отдаёт свежие файлы.
+
 Управление:
 
 ```bash
@@ -159,7 +162,7 @@ docker run -d --name mmap -p 9000:80 --restart unless-stopped mmap
 ```
 Dockerfile                образ на nginx:alpine
 docker-compose.yml        запуск одной командой, порт через MMAP_PORT
-docker/nginx.conf         раздача статики, заголовки кэша и безопасности
+docker/nginx.conf         раздача статики: ревалидация по ETag, заголовки безопасности
 index.html
 assets/css/styles.css     темы на CSS-переменных (тёмная / светлая)
 assets/fonts/             Inter и JetBrains Mono, вшиты в образ — панель не ходит в сеть за шрифтами
