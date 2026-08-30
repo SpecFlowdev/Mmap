@@ -68,14 +68,22 @@
   <div class="stat"><div class="stat-label" data-i18n="stat.assets">Активов</div><div class="stat-value" id="st-assets">—</div></div>
 </section>
 
+<div class="selection" id="selection" hidden>
+  <span class="saved-title" data-i18n="sel.title">Схема по кошелькам</span>
+  <div class="saved-list" id="selection-list"></div>
+  <button class="btn ghost small" id="selection-clear" data-i18n="sel.all">Все кошельки</button>
+</div>
+
 <main class="layout" id="layout" hidden>
   <div class="panel graph-panel">
     <div class="panel-head">
       <h2 data-i18n="graph.title">Схема переводов</h2>
       <div class="panel-tools">
         <div class="seg" id="view-switch" role="group">
+          <button class="seg-btn" data-view="flow" data-i18n="view.flow">Поток</button>
           <button class="seg-btn" data-view="mind" data-i18n="view.mind">Майндмап</button>
           <button class="seg-btn" data-view="graph" data-i18n="view.graph">Граф</button>
+          <button class="seg-btn" data-view="time" data-i18n="view.time">Хронология</button>
         </div>
         <select id="group-mode" class="input select small">
           <option value="asset" data-i18n="group.asset">По активам</option>
@@ -87,7 +95,9 @@
       </div>
     </div>
     <div class="graph-wrap">
-      <canvas id="mindmap"></canvas>
+      <canvas id="flowmap"></canvas>
+      <canvas id="mindmap" hidden></canvas>
+      <canvas id="timeline" hidden></canvas>
       <canvas id="graph" hidden></canvas>
       <div class="legend">
         <span><i class="dot self"></i><span data-i18n="legend.self">Ваш кошелёк</span></span>
@@ -170,6 +180,7 @@
 <script src="assets/js/providers.js"></script>
 <script src="assets/js/graph.js"></script>
 <script src="assets/js/mindmap.js"></script>
+<script src="assets/js/flows.js"></script>
 <script src="assets/js/app.js"></script>
 </body>
 </html>

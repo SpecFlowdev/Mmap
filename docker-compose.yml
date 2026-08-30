@@ -4,5 +4,5 @@ services:
     image: mmap:latest
     container_name: mmap
     ports:
-      - "${MMAP_PORT:-8080}:80"
+      - "${MMAP_PORT:-9000}:80"
     restart: unless-stopped

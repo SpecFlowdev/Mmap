@@ -10,10 +10,11 @@ const state = {
   filter: '',
   dirFilter: 'all',
   assetFilter: 'all',
-  view: 'mind',
+  peers: new Set(),   // выбранные контрагенты; пусто = все
+  view: 'flow',
   groupMode: 'asset'
 };
-let graph, mindmap;
+let graph, mindmap, flowmap, timeline;
 
 /* ---------------------------------------------------------- тема и язык */
 function setTheme(theme) {
@@ -23,6 +24,8 @@ function setTheme(theme) {
     .forEach(b => b.classList.toggle('active', b.dataset.themeSet === theme));
   graph?.draw();
   mindmap?.draw();
+  flowmap?.draw();
+  timeline?.draw();
 }
 
 function fillChainSelect() {
@@ -155,6 +158,7 @@ async function scan() {
     state.chain = chain;
     state.transfers = transfers;
     state.prices = {};
+    state.peers.clear();
 
     if (!transfers.length) {
       status(t('msg.empty'), true);
@@ -209,9 +213,11 @@ function aggregate(transfers) {
   return [...map.values()].sort((a, b) => (b.in + b.out) - (a.in + a.out) || b.txs - a.txs);
 }
 
-function visibleTransfers(useTextFilter = true) {
+function visibleTransfers(useTextFilter = true, usePeerFilter = true) {
   const q = useTextFilter ? state.filter.toLowerCase() : '';
   return state.transfers.filter(tx => {
+    // выбранные контрагенты сужают вообще всё: схемы, таблицу и статистику
+    if (usePeerFilter && state.peers.size && !state.peers.has(peerOf(tx))) return false;
     if (state.dirFilter !== 'all' && tx.direction !== state.dirFilter) return false;
     if (state.assetFilter !== 'all' && tx.symbol !== state.assetFilter) return false;
     if (!q) return true;
@@ -246,12 +252,12 @@ function buildTree() {
 
     const addr = peerOf(tx);
     let pr = g.peers.get(addr);
-    if (!pr) { pr = { addr, txs: 0, usd: 0, amount: 0, out: 0, symbols: new Set() }; g.peers.set(addr, pr); }
+    if (!pr) { pr = { addr, txs: 0, usd: 0, amount: 0, out: 0, usdIn: 0, usdOut: 0, symbols: new Set() }; g.peers.set(addr, pr); }
     pr.txs++;
     pr.usd += tx.usd || 0;
     pr.amount += tx.amount;
     pr.symbols.add(tx.symbol);
-    if (tx.direction === 'out') pr.out++;
+    if (tx.direction === 'out') { pr.out++; pr.usdOut += tx.usd || 0; } else { pr.usdIn += tx.usd || 0; }
   }
 
   const sorted = [...groups.values()].sort((a, b) => b.usd - a.usd || b.txs - a.txs);
@@ -263,14 +269,21 @@ function buildTree() {
     const rest = peers.slice(PEERS_PER_GROUP);
 
     const kids = head.map(pr => {
-      const dirColor = pr.out > pr.txs / 2 ? colOut : colIn;
+      const inTxs = pr.txs - pr.out;
+      // ← деньги пришли от этого адреса, → ушли на него, ↔ было и то и другое
+      const arrow = pr.out && inTxs ? '↔' : pr.out ? '→' : '←';
+      const dirColor = pr.out > inTxs ? colOut : colIn;
+      const sub = pr.out && inTxs
+        ? `←${pr.usdIn ? fmtUsd(pr.usdIn) : inTxs + '×'} · →${pr.usdOut ? fmtUsd(pr.usdOut) : pr.out + '×'}`
+        : `${pr.txs} ${t('peers.txs')} · ${pr.usd ? fmtUsd(pr.usd) : fmtAmount(pr.amount)}`;
       return {
         key: `${g.key}|${pr.addr}`,
-        label: shortAddr(pr.addr, 8, 6),
-        sub: `${pr.txs} ${t('peers.txs')} · ${pr.usd ? fmtUsd(pr.usd) : fmtAmount(pr.amount)}`,
+        label: `${arrow} ${shortAddr(pr.addr, 8, 6)}`,
+        sub,
         color: color || dirColor,
         addr: pr.addr,
-        tip: `<b>${pr.addr}</b><br>${pr.txs} ${t('peers.txs')} · ${fmtUsd(pr.usd)}<br>` +
+        tip: `<b>${pr.addr}</b><br>` +
+             `${t('dir.in')}: ${inTxs}× ${fmtUsd(pr.usdIn)} · ${t('dir.out')}: ${pr.out}× ${fmtUsd(pr.usdOut)}<br>` +
              `${[...pr.symbols].slice(0, 5).join(', ')}`
       };
     });
@@ -303,21 +316,150 @@ function buildTree() {
   };
 }
 
+const VIEW_CANVAS = { flow: 'flowmap', mind: 'mindmap', graph: 'graph', time: 'timeline' };
+
+function activeView() {
+  return { flow: flowmap, mind: mindmap, graph, time: timeline }[state.view];
+}
+
 function setView(view) {
-  state.view = view;
+  state.view = VIEW_CANVAS[view] ? view : 'flow';
+  view = state.view;
   store.set('view', view);
-  el('mindmap').hidden = view !== 'mind';
-  el('graph').hidden = view !== 'graph';
+  for (const [key, id] of Object.entries(VIEW_CANVAS)) el(id).hidden = key !== view;
   el('group-mode').disabled = view !== 'mind';
+  // в потоке и хронологии цвета подписаны заголовками колонок — легенда только мешает
+  document.querySelector('.legend').hidden = view === 'flow' || view === 'time';
   document.querySelectorAll('#view-switch .seg-btn')
     .forEach(b => b.classList.toggle('active', b.dataset.view === view));
   if (state.transfers.length) renderGraph();
+}
+
+
+/* ------------------------------------------- данные для потока и времени */
+/*
+ * Поток отвечает на главный вопрос: откуда деньги пришли и куда ушли.
+ * Отправители и получатели считаются раздельно, вес — сумма в USD,
+ * а если цены нет — объём в монетах.
+ */
+const FLOW_SIDE_LIMIT = 10;
+
+function buildFlow() {
+  const txs = visibleTransfers();
+  const sides = { in: new Map(), out: new Map() };
+
+  for (const tx of txs) {
+    const dir = tx.direction === 'out' ? 'out' : 'in';
+    const addr = peerOf(tx);
+    const m = sides[dir];
+    let p = m.get(addr);
+    if (!p) { p = { addr, usd: 0, amount: 0, txs: 0, symbols: new Set() }; m.set(addr, p); }
+    p.usd += tx.usd || 0;
+    p.amount += tx.amount;
+    p.txs++;
+    p.symbols.add(tx.symbol);
+  }
+
+  const pack = (map, dir) => {
+    const list = [...map.values()]
+      .map(p => ({ ...p, value: p.usd || p.amount }))
+      .sort((a, b) => b.value - a.value);
+    const head = list.slice(0, FLOW_SIDE_LIMIT);
+    const rest = list.slice(FLOW_SIDE_LIMIT);
+    const boxes = head.map(p => ({
+      addr: p.addr,
+      label: shortAddr(p.addr, 8, 6),
+      sub: `${p.txs} ${t('peers.txs')} · ${p.usd ? fmtUsd(p.usd) : fmtAmount(p.amount)}`,
+      value: p.value,
+      tip: `<b>${p.addr}</b><br>${t('dir.' + dir)} · ${p.txs} ${t('peers.txs')}<br>` +
+           `${p.usd ? fmtUsd(p.usd) : fmtAmount(p.amount)} · ${[...p.symbols].slice(0, 5).join(', ')}`
+    }));
+    if (rest.length) {
+      const value = rest.reduce((sum, p) => sum + p.value, 0);
+      const cnt = rest.reduce((sum, p) => sum + p.txs, 0);
+      boxes.push({
+        label: t('flow.rest', { n: rest.length }),
+        sub: `${cnt} ${t('peers.txs')}`,
+        value
+      });
+    }
+    return boxes;
+  };
+
+  const sources = pack(sides.in, 'in');
+  const dests = pack(sides.out, 'out');
+  const totalIn = sources.reduce((s, p) => s + p.value, 0);
+  const totalOut = dests.reduce((s, p) => s + p.value, 0);
+  const usdIn = txs.reduce((s, x) => s + (x.direction !== 'out' ? (x.usd || 0) : 0), 0);
+  const usdOut = txs.reduce((s, x) => s + (x.direction === 'out' ? (x.usd || 0) : 0), 0);
+
+  return {
+    sources, dests, totalIn, totalOut,
+    selfLabel: shortAddr(state.address, 7, 5),
+    chainLabel: `${CHAINS[state.chain]?.name || ''} · ${txs.length}`,
+    labelIn: t('flow.in', { v: usdIn ? fmtUsd(usdIn) : sources.length }),
+    labelOut: t('flow.out', { v: usdOut ? fmtUsd(usdOut) : dests.length })
+  };
+}
+
+function buildTimeline() {
+  const txs = visibleTransfers();
+  const usdIn = txs.reduce((s, x) => s + (x.direction !== 'out' ? (x.usd || 0) : 0), 0);
+  const usdOut = txs.reduce((s, x) => s + (x.direction === 'out' ? (x.usd || 0) : 0), 0);
+  return {
+    labelIn: t('flow.in', { v: usdIn ? fmtUsd(usdIn) : '' }).trim(),
+    labelOut: t('flow.out', { v: usdOut ? fmtUsd(usdOut) : '' }).trim(),
+    points: txs.map(tx => ({
+      ts: tx.ts, usd: tx.usd || 0, amount: tx.amount,
+      dir: tx.direction === 'out' ? 'out' : 'in',
+      addr: peerOf(tx),
+      tip: `<b>${shortAddr(peerOf(tx), 10, 8)}</b><br>` +
+           `${t('dir.' + (tx.direction === 'out' ? 'out' : 'in'))} · ${fmtAmount(tx.amount)} ${tx.symbol}` +
+           `${tx.usd ? ' · ' + fmtUsd(tx.usd) : ''}<br>${fmtDate(tx.ts)}`
+    }))
+  };
+}
+
+
+/* ------------------------------------------------ выбор контрагентов */
+/*
+ * Пустой набор = схема по всем кошелькам. Выбрав один или несколько адресов,
+ * получаем схему и таблицу только по переводам с ними.
+ */
+function togglePeer(addr) {
+  if (!addr) return;
+  if (state.peers.has(addr)) state.peers.delete(addr); else state.peers.add(addr);
+  renderSelection();
+  renderTable();
+  renderPeers();
+  renderStats();
+  renderGraph();
+}
+
+function clearPeers() {
+  state.peers.clear();
+  renderSelection();
+  renderTable();
+  renderPeers();
+  renderStats();
+  renderGraph();
+}
+
+function renderSelection() {
+  const list = [...state.peers];
+  el('selection').hidden = list.length === 0;
+  el('selection-list').innerHTML = list.map(addr =>
+    `<span class="chip active" data-addr="${addr}" title="${addr}">
+       <span class="chip-addr">${shortAddr(addr, 8, 6)}</span>
+       <button class="chip-x" data-remove="1">✕</button>
+     </span>`).join('');
 }
 
 /* ----------------------------------------------------------- отрисовка */
 function render() {
   el('layout').hidden = false;
   el('stats').hidden = false;
+  renderSelection();
   renderStats();
   renderAssetSelect();
   renderTable();
@@ -326,7 +468,8 @@ function render() {
 }
 
 function renderStats() {
-  const txs = state.transfers;
+  // статистика считается по тому, что реально показано: с учётом выбранных кошельков и фильтров
+  const txs = visibleTransfers();
   let inUsd = 0, outUsd = 0, priced = 0;
   for (const x of txs) {
     if (typeof x.usd === 'number') {
@@ -385,15 +528,16 @@ function renderTable() {
 }
 
 function renderPeers() {
-  // список контрагентов не сужается текстовым фильтром — иначе клик по строке схлопывает список
-  const peers = aggregate(visibleTransfers(false)).slice(0, 40);
+  // список не сужается ни текстом, ни выбором — иначе из него не добавить второй кошелёк
+  const peers = aggregate(visibleTransfers(false, false)).slice(0, 40);
   const max = Math.max(1, ...peers.map(p => p.in + p.out));
   el('peers-list').innerHTML = peers.length ? peers.map(p => {
     const total = p.in + p.out;
     const syms = [...p.symbols].slice(0, 3).join(', ');
-    return `<div class="peer" data-addr="${p.addr}">
+    const on = state.peers.has(p.addr);
+    return `<div class="peer${on ? ' selected' : ''}" data-addr="${p.addr}">
       <div class="peer-top">
-        <span class="peer-addr" title="${p.addr}">${shortAddr(p.addr, 10, 6)}</span>
+        <span class="peer-addr" title="${p.addr}"><i class="peer-check"></i>${shortAddr(p.addr, 10, 6)}</span>
         <span class="peer-usd">${total ? fmtUsd(total) : p.txs + '×'}</span>
       </div>
       <div class="peer-bar"><i style="width:${Math.max(3, (total / max) * 100)}%"></i></div>
@@ -405,9 +549,14 @@ function renderPeers() {
 }
 
 function renderGraph() {
-  if (state.view === 'mind') {
+  const view = state.view;
+  if (view === 'mind') {
     mindmap.resize();
     mindmap.setData(buildTree());
+  } else if (view === 'flow') {
+    flowmap.setData(buildFlow());
+  } else if (view === 'time') {
+    timeline.setData(buildTimeline());
   } else {
     graph.resize();
     graph.setData({ self: state.address, peers: aggregate(visibleTransfers()) });
@@ -456,17 +605,17 @@ function bind() {
 
   el('peers-list').addEventListener('click', e => {
     const peer = e.target.closest('.peer');
-    if (!peer) return;
-    el('filter-input').value = peer.dataset.addr;
-    state.filter = peer.dataset.addr;
-    renderTable(); renderGraph();
+    if (peer) togglePeer(peer.dataset.addr);
   });
 
-  document.addEventListener('peerpick', e => {
-    el('filter-input').value = e.detail;
-    state.filter = e.detail;
-    renderTable();
+  el('selection-list').addEventListener('click', e => {
+    const chip = e.target.closest('.chip');
+    if (chip) togglePeer(chip.dataset.addr);
   });
+  el('selection-clear').addEventListener('click', clearPeers);
+
+  // клик по узлу любой схемы добавляет/убирает кошелёк из выборки
+  document.addEventListener('peerpick', e => togglePeer(e.detail));
 
   el('saved-list').addEventListener('click', e => {
     const chip = e.target.closest('.chip');
@@ -487,8 +636,11 @@ function bind() {
     e.target.value = '';
   });
 
-  el('graph-fit').addEventListener('click', () => (state.view === 'mind' ? mindmap : graph).fit());
-  el('graph-export').addEventListener('click', () => (state.view === 'mind' ? mindmap : graph).exportPng());
+  el('graph-fit').addEventListener('click', () => activeView().fit());
+  el('graph-export').addEventListener('click', () => {
+    const v = activeView();
+    v.exportPng(v === graph || v === mindmap ? undefined : `mmap-${state.view}.png`);
+  });
   document.querySelectorAll('#view-switch .seg-btn').forEach(b =>
     b.addEventListener('click', () => setView(b.dataset.view)));
   el('group-mode').addEventListener('change', e => {
@@ -537,10 +689,12 @@ function init() {
   fillChainSelect();
   graph = new TransferGraph(el('graph'), el('graph-tip'));
   mindmap = new MindMap(el('mindmap'), el('graph-tip'));
+  flowmap = new FlowMap(el('flowmap'), el('graph-tip'));
+  timeline = new Timeline(el('timeline'), el('graph-tip'));
   bind();
   state.groupMode = store.get('groupMode', 'asset');
   el('group-mode').value = state.groupMode;
-  setView(store.get('view', 'mind'));
+  setView(store.get('view', 'flow'));
   renderSaved();
 
   const hash = decodeURIComponent(location.hash.replace(/^#/, ''));
