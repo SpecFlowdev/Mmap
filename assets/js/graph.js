@@ -217,6 +217,14 @@ class TransferGraph {
       this.draw();
     }, { passive: false });
 
+    cv.addEventListener('contextmenu', e => {
+      const r = cv.getBoundingClientRect();
+      const node = this.nodeAt(e.clientX - r.left, e.clientY - r.top);
+      if (!node || node.self) return;
+      e.preventDefault();
+      document.dispatchEvent(new CustomEvent('peerhide', { detail: node.id }));
+    });
+
     cv.addEventListener('dblclick', e => {
       const r = cv.getBoundingClientRect();
       const node = this.nodeAt(e.clientX - r.left, e.clientY - r.top);

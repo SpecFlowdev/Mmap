@@ -11,6 +11,7 @@ const state = {
   dirFilter: 'all',
   assetFilter: 'all',
   peers: new Set(),   // выбранные контрагенты; пусто = все
+  hidden: new Set(),  // контрагенты, убранные со схемы правым кликом
   view: 'flow',
   groupMode: 'asset'
 };
@@ -159,6 +160,7 @@ async function scan() {
     state.transfers = transfers;
     state.prices = {};
     state.peers.clear();
+    state.hidden.clear();
 
     if (!transfers.length) {
       status(t('msg.empty'), true);
@@ -216,6 +218,8 @@ function aggregate(transfers) {
 function visibleTransfers(useTextFilter = true, usePeerFilter = true) {
   const q = useTextFilter ? state.filter.toLowerCase() : '';
   return state.transfers.filter(tx => {
+    // скрытые контрагенты не участвуют нигде, пока их не вернут кнопкой
+    if (state.hidden.has(peerOf(tx))) return false;
     // выбранные контрагенты сужают вообще всё: схемы, таблицу и статистику
     if (usePeerFilter && state.peers.size && !state.peers.has(peerOf(tx))) return false;
     if (state.dirFilter !== 'all' && tx.direction !== state.dirFilter) return false;
@@ -377,9 +381,10 @@ function buildFlow() {
     if (rest.length) {
       const value = rest.reduce((sum, p) => sum + p.value, 0);
       const cnt = rest.reduce((sum, p) => sum + p.txs, 0);
+      const usdRest = rest.reduce((sum, p) => sum + p.usd, 0);
       boxes.push({
         label: t('flow.rest', { n: rest.length }),
-        sub: `${cnt} ${t('peers.txs')}`,
+        sub: `${cnt} ${t('peers.txs')} · ${usdRest ? fmtUsd(usdRest) : fmtAmount(value)}`,
         value
       });
     }
@@ -393,12 +398,19 @@ function buildFlow() {
   const usdIn = txs.reduce((s, x) => s + (x.direction !== 'out' ? (x.usd || 0) : 0), 0);
   const usdOut = txs.reduce((s, x) => s + (x.direction === 'out' ? (x.usd || 0) : 0), 0);
 
+  const amtIn = txs.reduce((s, x) => s + (x.direction !== 'out' ? x.amount : 0), 0);
+  const amtOut = txs.reduce((s, x) => s + (x.direction === 'out' ? x.amount : 0), 0);
+
   return {
     sources, dests, totalIn, totalOut,
     selfLabel: shortAddr(state.address, 7, 5),
-    chainLabel: `${CHAINS[state.chain]?.name || ''} · ${txs.length}`,
-    labelIn: t('flow.in', { v: usdIn ? fmtUsd(usdIn) : sources.length }),
-    labelOut: t('flow.out', { v: usdOut ? fmtUsd(usdOut) : dests.length })
+    chainLabel: `${CHAINS[state.chain]?.name || ''} · ${txs.length} ${t('peers.txs')}`,
+    labelIn: t('flow.senders', { n: sides.in.size }),
+    labelOut: t('flow.receivers', { n: sides.out.size }),
+    inWord: t('flow.inWord'),
+    outWord: t('flow.outWord'),
+    inTotal: usdIn ? fmtUsd(usdIn) : fmtAmount(amtIn),
+    outTotal: usdOut ? fmtUsd(usdOut) : fmtAmount(amtOut)
   };
 }
 
@@ -429,20 +441,43 @@ function buildTimeline() {
 function togglePeer(addr) {
   if (!addr) return;
   if (state.peers.has(addr)) state.peers.delete(addr); else state.peers.add(addr);
-  renderSelection();
-  renderTable();
-  renderPeers();
-  renderStats();
-  renderGraph();
+  refreshAll();
 }
 
 function clearPeers() {
   state.peers.clear();
+  refreshAll();
+}
+
+function hidePeer(addr) {
+  if (!addr) return;
+  state.hidden.add(addr);
+  state.peers.delete(addr);
+  refreshAll();
+}
+
+function unhidePeer(addr) {
+  state.hidden.delete(addr);
+  refreshAll();
+}
+
+function refreshAll() {
   renderSelection();
+  renderHidden();
+  renderStats();
   renderTable();
   renderPeers();
-  renderStats();
   renderGraph();
+}
+
+function renderHidden() {
+  const list = [...state.hidden];
+  el('hidden-bar').hidden = list.length === 0;
+  el('hidden-list').innerHTML = list.map(addr =>
+    `<span class="chip" data-addr="${addr}" title="${addr}">
+       <span class="chip-addr">${shortAddr(addr, 8, 6)}</span>
+       <button class="chip-x" data-restore="1">↺</button>
+     </span>`).join('');
 }
 
 function renderSelection() {
@@ -460,6 +495,7 @@ function render() {
   el('layout').hidden = false;
   el('stats').hidden = false;
   renderSelection();
+  renderHidden();
   renderStats();
   renderAssetSelect();
   renderTable();
@@ -616,6 +652,22 @@ function bind() {
 
   // клик по узлу любой схемы добавляет/убирает кошелёк из выборки
   document.addEventListener('peerpick', e => togglePeer(e.detail));
+  // правый клик по узлу или стрелке — убрать эти переводы со схемы
+  document.addEventListener('peerhide', e => hidePeer(e.detail));
+
+  el('hidden-list').addEventListener('click', e => {
+    const chip = e.target.closest('.chip');
+    if (chip) unhidePeer(chip.dataset.addr);
+  });
+  el('hidden-clear').addEventListener('click', () => { state.hidden.clear(); refreshAll(); });
+
+  // ПКМ по строке контрагента прячет его так же, как на схеме
+  el('peers-list').addEventListener('contextmenu', e => {
+    const peer = e.target.closest('.peer');
+    if (!peer) return;
+    e.preventDefault();
+    hidePeer(peer.dataset.addr);
+  });
 
   el('saved-list').addEventListener('click', e => {
     const chip = e.target.closest('.chip');

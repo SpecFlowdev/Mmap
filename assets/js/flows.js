@@ -91,6 +91,14 @@ class CanvasView {
       const it = this.hitTest(e.clientX - r.left, e.clientY - r.top);
       if (it?.addr) document.dispatchEvent(new CustomEvent('peerpick', { detail: it.addr }));
     });
+    // правый клик по узлу или стрелке убирает этого контрагента со схемы
+    cv.addEventListener('contextmenu', e => {
+      const r = cv.getBoundingClientRect();
+      const it = this.hitTest(e.clientX - r.left, e.clientY - r.top);
+      if (!it?.addr) return;
+      e.preventDefault();
+      document.dispatchEvent(new CustomEvent('peerhide', { detail: it.addr }));
+    });
     cv.addEventListener('wheel', e => {
       e.preventDefault();
       const r = cv.getBoundingClientRect();
@@ -150,49 +158,67 @@ class FlowMap extends CanvasView {
   layout() {
     const d = this.data;
     if (!d || !this.w) return;
-    const COLW = 210, GAP = 130, MINH = 16, PAD = 6;
-    const bodyH = Math.max(340, this.h - 90);
+    const CARD_W = 236, CARD_H = 46, ROW_GAP = 9, LINK_W = 168;
+    const CENTER_W = 158, CENTER_H = 168;
 
-    const side = (list, total) => {
-      const sum = Math.max(total, 1e-9);
-      const flex = Math.max(0, bodyH - list.length * (MINH + PAD));
-      let y = 0;
-      return list.map(p => {
-        const h = MINH + (p.value / sum) * flex;
-        const box = { ...p, y, h };
-        y += h + PAD;
-        return box;
-      });
+    const column = (list, x) => {
+      const total = Math.max(1e-9, list.reduce((sum, b) => sum + b.value, 0));
+      const height = list.length * CARD_H + Math.max(0, list.length - 1) * ROW_GAP;
+      return list.map((b, i) => ({
+        ...b, x, w: CARD_W, h: CARD_H,
+        y: i * (CARD_H + ROW_GAP),
+        share: b.value / total,
+        colH: height
+      }));
     };
 
-    this.left = side(d.sources, d.totalIn);
-    this.right = side(d.dests, d.totalOut);
-    const leftH = this.left.length ? this.left.at(-1).y + this.left.at(-1).h : 0;
-    const rightH = this.right.length ? this.right.at(-1).y + this.right.at(-1).h : 0;
-    const maxH = Math.max(leftH, rightH, 120);
+    const rightX = CARD_W + LINK_W + CENTER_W + LINK_W;
+    this.left = column(d.sources, 0);
+    this.right = column(d.dests, rightX);
 
-    this.left.forEach(b => { b.x = 0; b.w = COLW; b.y += (maxH - leftH) / 2; });
-    this.right.forEach(b => { b.x = COLW + GAP * 2 + 130; b.w = COLW; b.y += (maxH - rightH) / 2; });
+    const leftH = this.left[0]?.colH || 0;
+    const rightH = this.right[0]?.colH || 0;
+    const maxH = Math.max(leftH, rightH, CENTER_H);
+    this.left.forEach(b => { b.y += (maxH - leftH) / 2; });
+    this.right.forEach(b => { b.y += (maxH - rightH) / 2; });
 
-    this.center = { x: COLW + GAP, y: maxH / 2 - 34, w: 130, h: 68 };
-    this.bounds = { x0: -10, x1: COLW * 2 + GAP * 2 + 140, y0: -34, y1: maxH + 10 };
+    this.center = { x: CARD_W + LINK_W, y: (maxH - CENTER_H) / 2, w: CENTER_W, h: CENTER_H };
+
+    /*
+     * Каждая связь приходит в собственную точку на грани центрального узла:
+     * так веер остаётся разборчивым, а не сливается в одно пятно.
+     */
+    const anchors = (list, edgeX) => {
+      const inner = this.center.h - 24;
+      const step = list.length > 1 ? inner / (list.length - 1) : 0;
+      const top = this.center.y + 12;
+      list.forEach((b, i) => {
+        b.ax = edgeX;
+        b.ay = list.length > 1 ? top + step * i : this.center.y + this.center.h / 2;
+        b.lw = Math.max(2.5, Math.min(15, 2.5 + b.share * 34));
+      });
+    };
+    anchors(this.left, this.center.x);
+    anchors(this.right, this.center.x + this.center.w);
+
+    this.bounds = { x0: -12, x1: rightX + CARD_W + 12, y0: -30, y1: maxH + 12 };
     this.items = [...this.left, ...this.right];
   }
 
   fit() {
     const b = this.bounds;
     if (!b || !this.w) return;
-    const pad = 26;
-    const s = Math.min(this.w / (b.x1 - b.x0 + pad * 2), this.h / (b.y1 - b.y0 + pad * 2), 1.2);
+    const pad = 22;
+    const s = Math.min(this.w / (b.x1 - b.x0 + pad * 2), this.h / (b.y1 - b.y0 + pad * 2), 1.1);
     this.view.scale = Math.max(0.18, s);
-    this.view.x = pad * this.view.scale - b.x0 * this.view.scale;
+    this.view.x = this.w / 2 - ((b.x0 + b.x1) / 2) * this.view.scale;
     this.view.y = this.h / 2 - ((b.y0 + b.y1) / 2) * this.view.scale;
     this.draw();
   }
 
   draw() {
     const ctx = this.ctx, c = this.colors(), d = this.data;
-    if (!ctx || !this.w || !d) return;
+    if (!ctx || !this.w || !d || !this.center) return;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, this.w, this.h);
     ctx.save();
@@ -200,97 +226,114 @@ class FlowMap extends CanvasView {
     ctx.scale(this.view.scale, this.view.scale);
 
     const cn = this.center;
-    // ленты: слева входящие в кошелёк, справа исходящие из него
-    const ribbon = (box, toCenter, color) => {
-      const dim = this.hover && this.hover !== box;
-      const x1 = toCenter ? box.x + box.w : cn.x + cn.w;
-      const x2 = toCenter ? cn.x : box.x;
-      const share = box.h;
-      const y1 = box.y, y1b = box.y + share;
-      const anchor = toCenter ? box.centerY : box.centerY;
-      const y2 = anchor - share / 2, y2b = anchor + share / 2;
+
+    // связи: тонкие кривые с градиентом от цвета стороны к цвету кошелька
+    const link = (b, fromCard, color) => {
+      const x1 = fromCard ? b.x + b.w : b.x;
+      const y1 = b.y + b.h / 2;
+      const x2 = b.ax, y2 = b.ay;
+      const grad = ctx.createLinearGradient(x1, y1, x2, y2);
+      const [a, z] = fromCard ? [color, c.self] : [c.self, color];
+      grad.addColorStop(0, a);
+      grad.addColorStop(1, z);
       const mid = (x1 + x2) / 2;
       ctx.beginPath();
       ctx.moveTo(x1, y1);
       ctx.bezierCurveTo(mid, y1, mid, y2, x2, y2);
-      ctx.lineTo(x2, y2b);
-      ctx.bezierCurveTo(mid, y2b, mid, y1b, x1, y1b);
-      ctx.closePath();
-      ctx.fillStyle = color;
-      ctx.globalAlpha = dim ? 0.12 : 0.34;
-      ctx.fill();
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = b.lw;
+      ctx.lineCap = 'round';
+      ctx.globalAlpha = this.hover ? (this.hover === b ? 0.95 : 0.12) : 0.6;
+      ctx.stroke();
       ctx.globalAlpha = 1;
     };
+    this.left.forEach(b => link(b, true, c.in));
+    this.right.forEach(b => link(b, false, c.out));
 
-    // точки входа/выхода на центральном узле распределяем пропорционально
-    const spread = (list, top, height) => {
-      const tot = list.reduce((s, b) => s + b.h, 0) || 1;
-      let y = top + (height - Math.min(height, tot)) / 2;
-      const k = Math.min(1, height / tot);
-      for (const b of list) { b.centerY = y + (b.h * k) / 2; y += b.h * k; }
+    // карточки контрагентов
+    const card = (b, color, alignRight) => {
+      const dim = this.hover && this.hover !== b;
+      ctx.globalAlpha = dim ? 0.4 : 1;
+      ctx.beginPath();
+      this._roundRect(ctx, b.x, b.y, b.w, b.h, 9);
+      ctx.fillStyle = c.elev;
+      ctx.fill();
+      ctx.lineWidth = b === this.hover ? 1.6 : 1;
+      ctx.strokeStyle = b === this.hover ? c.accent : c.line;
+      ctx.stroke();
+
+      // полоска доли внизу карточки — сколько эта сторона весит в общем объёме
+      ctx.save();
+      ctx.beginPath();
+      this._roundRect(ctx, b.x, b.y, b.w, b.h, 9);
+      ctx.clip();
+      ctx.fillStyle = color;
+      ctx.globalAlpha = (dim ? 0.4 : 1) * 0.28;
+      ctx.fillRect(alignRight ? b.x + b.w - b.w * b.share : b.x, b.y + b.h - 3, b.w * b.share, 3);
+      ctx.globalAlpha = dim ? 0.4 : 1;
+      ctx.fillRect(alignRight ? b.x + b.w - 2.5 : b.x, b.y, 2.5, b.h);
+      ctx.restore();
+
+      const pad = 13;
+      const left = b.x + pad, right = b.x + b.w - pad;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = c.text;
+      ctx.font = '500 12.5px ui-monospace, Menlo, Consolas, monospace';
+      ctx.fillText(this._clip(ctx, b.label, b.w - pad * 2 - 40), left, b.y + 19);
+
+      ctx.font = '400 11px ui-sans-serif, system-ui, sans-serif';
+      ctx.fillStyle = c.dim;
+      ctx.fillText(b.sub, left, b.y + 34);
+
+      // доля справа крупной цифрой
+      ctx.textAlign = 'right';
+      ctx.font = '600 12px ui-sans-serif, system-ui, sans-serif';
+      ctx.fillStyle = color;
+      ctx.fillText(Math.round(b.share * 100) + '%', right, b.y + 19);
+      ctx.globalAlpha = 1;
     };
-    spread(this.left, cn.y - 6, cn.h + 12);
-    spread(this.right, cn.y - 6, cn.h + 12);
+    this.left.forEach(b => card(b, c.in, true));
+    this.right.forEach(b => card(b, c.out, false));
 
-    this.left.forEach(b => ribbon(b, true, c.in));
-    this.right.forEach(b => ribbon(b, false, c.out));
-
-    // боковые узлы
-    const drawSide = (list, color, alignRight) => {
-      for (const b of list) {
-        const dim = this.hover && this.hover !== b;
-        ctx.globalAlpha = dim ? 0.45 : 1;
-        ctx.beginPath();
-        this._roundRect(ctx, b.x, b.y, b.w, b.h, 6);
-        ctx.fillStyle = c.elev;
-        ctx.fill();
-        ctx.lineWidth = b === this.hover ? 2 : 1;
-        ctx.strokeStyle = b === this.hover ? c.accent : c.line;
-        ctx.stroke();
-        ctx.save();
-        ctx.beginPath();
-        this._roundRect(ctx, b.x, b.y, b.w, b.h, 6);
-        ctx.clip();
-        ctx.fillStyle = color;
-        ctx.fillRect(alignRight ? b.x + b.w - 3 : b.x, b.y, 3, b.h);
-        ctx.restore();
-
-        const tx = b.x + 10, cy = b.y + b.h / 2;
-        ctx.textAlign = 'left';
-        ctx.fillStyle = c.text;
-        ctx.font = '500 12px ui-monospace, Menlo, monospace';
-        ctx.fillText(this._clip(ctx, b.label, b.w - 20), tx, b.h > 30 ? cy - 3 : cy + 4);
-        if (b.h > 30) {
-          ctx.font = '400 11px ui-sans-serif, system-ui, sans-serif';
-          ctx.fillStyle = c.dim;
-          ctx.fillText(this._clip(ctx, b.sub, b.w - 20), tx, cy + 12);
-        }
-        ctx.globalAlpha = 1;
-      }
-    };
-    drawSide(this.left, c.in, true);
-    drawSide(this.right, c.out, false);
-
-    // центральный узел — кошелёк
+    // центральный узел — кошелёк с итогами по обеим сторонам
     ctx.beginPath();
-    this._roundRect(ctx, cn.x, cn.y, cn.w, cn.h, 10);
+    this._roundRect(ctx, cn.x, cn.y, cn.w, cn.h, 14);
     ctx.fillStyle = c.self;
     ctx.fill();
+    const cx = cn.x + cn.w / 2;
     ctx.textAlign = 'center';
     ctx.fillStyle = '#fff';
-    ctx.font = '600 12px ui-monospace, Menlo, monospace';
-    ctx.fillText(this._clip(ctx, d.selfLabel, cn.w - 16), cn.x + cn.w / 2, cn.y + 26);
+    ctx.font = '600 12.5px ui-monospace, Menlo, monospace';
+    ctx.fillText(this._clip(ctx, d.selfLabel, cn.w - 20), cx, cn.y + 34);
     ctx.font = '400 11px ui-sans-serif, system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,.85)';
-    ctx.fillText(d.chainLabel, cn.x + cn.w / 2, cn.y + 44);
+    ctx.fillStyle = 'rgba(255,255,255,.8)';
+    ctx.fillText(this._clip(ctx, d.chainLabel, cn.w - 20), cx, cn.y + 52);
 
-    // заголовки колонок с итогами
+    ctx.beginPath();
+    ctx.moveTo(cn.x + 18, cn.y + 70); ctx.lineTo(cn.x + cn.w - 18, cn.y + 70);
+    ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 1; ctx.stroke();
+
+    const money = (label, value, y) => {
+      ctx.textAlign = 'center';
+      ctx.font = '400 10px ui-sans-serif, system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,.7)';
+      ctx.fillText(label, cx, y);
+      ctx.font = '600 13px ui-sans-serif, system-ui, sans-serif';
+      ctx.fillStyle = '#fff';
+      ctx.fillText(value, cx, y + 17);
+    };
+    money(d.inWord, d.inTotal, cn.y + 90);
+    money(d.outWord, d.outTotal, cn.y + 130);
+
+    // заголовки колонок
     ctx.font = '600 12px ui-sans-serif, system-ui, sans-serif';
     ctx.textAlign = 'left';
     ctx.fillStyle = c.in;
-    ctx.fillText(d.labelIn, this.left[0]?.x ?? 0, this.bounds.y0 - 6);
+    ctx.fillText(d.labelIn, this.left[0]?.x ?? 0, this.bounds.y0 + 14);
+    ctx.textAlign = 'right';
     ctx.fillStyle = c.out;
-    ctx.fillText(d.labelOut, this.right[0]?.x ?? cn.x + cn.w + 40, this.bounds.y0 - 6);
+    const rEdge = (this.right[0]?.x ?? cn.x + cn.w) + (this.right[0]?.w ?? 0);
+    ctx.fillText(d.labelOut, rEdge, this.bounds.y0 + 14);
     ctx.restore();
   }
 }

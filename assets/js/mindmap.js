@@ -308,6 +308,14 @@ class MindMap {
       if (node?.addr) document.dispatchEvent(new CustomEvent('peerpick', { detail: node.addr }));
     });
 
+    cv.addEventListener('contextmenu', e => {
+      const r = cv.getBoundingClientRect();
+      const node = this.nodeAt(e.clientX - r.left, e.clientY - r.top);
+      if (!node?.addr) return;
+      e.preventDefault();
+      document.dispatchEvent(new CustomEvent('peerhide', { detail: node.addr }));
+    });
+
     cv.addEventListener('wheel', e => {
       e.preventDefault();
       const r = cv.getBoundingClientRect();
