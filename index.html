@@ -73,13 +73,22 @@
     <div class="panel-head">
       <h2 data-i18n="graph.title">Схема переводов</h2>
       <div class="panel-tools">
+        <div class="seg" id="view-switch" role="group">
+          <button class="seg-btn" data-view="mind" data-i18n="view.mind">Майндмап</button>
+          <button class="seg-btn" data-view="graph" data-i18n="view.graph">Граф</button>
+        </div>
+        <select id="group-mode" class="input select small">
+          <option value="asset" data-i18n="group.asset">По активам</option>
+          <option value="dir" data-i18n="group.dir">По направлению</option>
+        </select>
         <select id="graph-asset" class="input select small"></select>
         <button class="btn ghost small" id="graph-fit" data-i18n="graph.fit">По размеру</button>
         <button class="btn ghost small" id="graph-export" data-i18n="graph.export">PNG</button>
       </div>
     </div>
     <div class="graph-wrap">
-      <canvas id="graph"></canvas>
+      <canvas id="mindmap"></canvas>
+      <canvas id="graph" hidden></canvas>
       <div class="legend">
         <span><i class="dot self"></i><span data-i18n="legend.self">Ваш кошелёк</span></span>
         <span><i class="dot in"></i><span data-i18n="legend.in">Отправитель</span></span>
@@ -160,6 +169,7 @@
 <script src="assets/js/prices.js"></script>
 <script src="assets/js/providers.js"></script>
 <script src="assets/js/graph.js"></script>
+<script src="assets/js/mindmap.js"></script>
 <script src="assets/js/app.js"></script>
 </body>
 </html>

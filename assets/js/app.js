@@ -9,9 +9,11 @@ const state = {
   sort: { key: 'ts', dir: -1 },
   filter: '',
   dirFilter: 'all',
-  assetFilter: 'all'
+  assetFilter: 'all',
+  view: 'mind',
+  groupMode: 'asset'
 };
-let graph;
+let graph, mindmap;
 
 /* ---------------------------------------------------------- тема и язык */
 function setTheme(theme) {
@@ -20,6 +22,7 @@ function setTheme(theme) {
   document.querySelectorAll('#theme-switch .seg-btn')
     .forEach(b => b.classList.toggle('active', b.dataset.themeSet === theme));
   graph?.draw();
+  mindmap?.draw();
 }
 
 function fillChainSelect() {
@@ -216,6 +219,101 @@ function visibleTransfers(useTextFilter = true) {
   });
 }
 
+
+/* ------------------------------------------------- дерево для майндмапа */
+/*
+ * Кошелёк → группы (актив или направление) → контрагенты.
+ * В группе показываем до 12 самых крупных контрагентов, остальные сворачиваем
+ * в один узел «ещё N», чтобы карта оставалась читаемой.
+ */
+const PEERS_PER_GROUP = 8;
+
+function buildTree() {
+  const cs = getComputedStyle(document.documentElement);
+  const colIn = cs.getPropertyValue('--node-in').trim();
+  const colOut = cs.getPropertyValue('--node-out').trim();
+  const txs = visibleTransfers();
+
+  const groups = new Map();
+  for (const tx of txs) {
+    const key = state.groupMode === 'dir'
+      ? (tx.direction === 'out' ? 'out' : 'in')
+      : tx.symbol;
+    let g = groups.get(key);
+    if (!g) { g = { key, txs: 0, usd: 0, peers: new Map() }; groups.set(key, g); }
+    g.txs++;
+    g.usd += tx.usd || 0;
+
+    const addr = peerOf(tx);
+    let pr = g.peers.get(addr);
+    if (!pr) { pr = { addr, txs: 0, usd: 0, amount: 0, out: 0, symbols: new Set() }; g.peers.set(addr, pr); }
+    pr.txs++;
+    pr.usd += tx.usd || 0;
+    pr.amount += tx.amount;
+    pr.symbols.add(tx.symbol);
+    if (tx.direction === 'out') pr.out++;
+  }
+
+  const sorted = [...groups.values()].sort((a, b) => b.usd - a.usd || b.txs - a.txs);
+  const children = sorted.map(g => {
+    const label = state.groupMode === 'dir' ? t('dir.' + g.key) : g.key;
+    const color = state.groupMode === 'dir' ? (g.key === 'out' ? colOut : colIn) : undefined;
+    const peers = [...g.peers.values()].sort((a, b) => b.usd - a.usd || b.txs - a.txs);
+    const head = peers.slice(0, PEERS_PER_GROUP);
+    const rest = peers.slice(PEERS_PER_GROUP);
+
+    const kids = head.map(pr => {
+      const dirColor = pr.out > pr.txs / 2 ? colOut : colIn;
+      return {
+        key: `${g.key}|${pr.addr}`,
+        label: shortAddr(pr.addr, 8, 6),
+        sub: `${pr.txs} ${t('peers.txs')} · ${pr.usd ? fmtUsd(pr.usd) : fmtAmount(pr.amount)}`,
+        color: color || dirColor,
+        addr: pr.addr,
+        tip: `<b>${pr.addr}</b><br>${pr.txs} ${t('peers.txs')} · ${fmtUsd(pr.usd)}<br>` +
+             `${[...pr.symbols].slice(0, 5).join(', ')}`
+      };
+    });
+
+    if (rest.length) {
+      const restUsd = rest.reduce((sum, p) => sum + p.usd, 0);
+      const restTxs = rest.reduce((sum, p) => sum + p.txs, 0);
+      kids.push({
+        key: `${g.key}|rest`,
+        label: t('mm.more', { n: rest.length }),
+        sub: `${restTxs} ${t('peers.txs')} · ${fmtUsd(restUsd)}`,
+        color: color || cs.getPropertyValue('--text-dim').trim()
+      });
+    }
+
+    return {
+      key: 'g|' + g.key,
+      label,
+      sub: `${g.txs} ${t('peers.txs')} · ${g.usd ? fmtUsd(g.usd) : ''}`.trim(),
+      color: color || cs.getPropertyValue('--accent').trim(),
+      children: kids
+    };
+  });
+
+  return {
+    key: 'root',
+    label: shortAddr(state.address, 10, 8),
+    sub: `${CHAINS[state.chain]?.name || ''} · ${txs.length} ${t('peers.txs')}`,
+    children
+  };
+}
+
+function setView(view) {
+  state.view = view;
+  store.set('view', view);
+  el('mindmap').hidden = view !== 'mind';
+  el('graph').hidden = view !== 'graph';
+  el('group-mode').disabled = view !== 'mind';
+  document.querySelectorAll('#view-switch .seg-btn')
+    .forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  if (state.transfers.length) renderGraph();
+}
+
 /* ----------------------------------------------------------- отрисовка */
 function render() {
   el('layout').hidden = false;
@@ -307,7 +405,13 @@ function renderPeers() {
 }
 
 function renderGraph() {
-  graph.setData({ self: state.address, peers: aggregate(visibleTransfers()) });
+  if (state.view === 'mind') {
+    mindmap.resize();
+    mindmap.setData(buildTree());
+  } else {
+    graph.resize();
+    graph.setData({ self: state.address, peers: aggregate(visibleTransfers()) });
+  }
 }
 
 /* -------------------------------------------------------------- события */
@@ -383,8 +487,16 @@ function bind() {
     e.target.value = '';
   });
 
-  el('graph-fit').addEventListener('click', () => graph.fit());
-  el('graph-export').addEventListener('click', () => graph.exportPng());
+  el('graph-fit').addEventListener('click', () => (state.view === 'mind' ? mindmap : graph).fit());
+  el('graph-export').addEventListener('click', () => (state.view === 'mind' ? mindmap : graph).exportPng());
+  document.querySelectorAll('#view-switch .seg-btn').forEach(b =>
+    b.addEventListener('click', () => setView(b.dataset.view)));
+  el('group-mode').addEventListener('change', e => {
+    state.groupMode = e.target.value;
+    store.set('groupMode', state.groupMode);
+    mindmap.collapsed.clear();
+    renderGraph();
+  });
   el('csv-export').addEventListener('click', exportCsv);
 
   el('settings-open').addEventListener('click', () => {
@@ -424,7 +536,11 @@ function init() {
   setLang(currentLang);
   fillChainSelect();
   graph = new TransferGraph(el('graph'), el('graph-tip'));
+  mindmap = new MindMap(el('mindmap'), el('graph-tip'));
   bind();
+  state.groupMode = store.get('groupMode', 'asset');
+  el('group-mode').value = state.groupMode;
+  setView(store.get('view', 'mind'));
   renderSaved();
 
   const hash = decodeURIComponent(location.hash.replace(/^#/, ''));
