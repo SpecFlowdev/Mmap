@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/flow.png" alt="Откуда пришли и куда ушли средства" width="820">
+  <img src="docs/mindmap.png" alt="Майндмап переводов кошелька" width="820">
 </p>
 
 <p align="center">
